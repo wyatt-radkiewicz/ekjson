@@ -6,6 +6,11 @@
 #include <stdint.h>
 #include <time.h>
 
+// How many deep recursive functions in ektoml can go
+// This is NOT the same as call stack depth, non recursive
+// functions can make the call stack deeper than this limit
+#define TOML_MAX_RECURSION_DEPTH 64
+
 // See structure definition below for details
 typedef struct toml toml_t;
 
@@ -57,7 +62,7 @@ typedef struct toml_datetime_local {
 // which could be any of the types above.
 // Should return a non-null pointer to that data or something else, or NULL
 // upon failure
-typedef void *(toml_ctor_fn)(const toml_t *initializing, void *user);
+typedef void *(toml_ctor_fn)(const toml_t *parent, void *user);
 
 // toml value constructors
 // These return true if they pass, false if they don't
@@ -98,16 +103,23 @@ struct toml_val {
 	// Length of array / number of kv pairs in table
 	uint32_t len;
 
+	// Leave this to 0, this is a generational boolean for if this value
+	// has been visited or not yet
+	uint16_t _parsed_gen;
+
 	// Length of the pattern for the array type
-	uint16_t pattern_len;
+	uint16_t pattern_len : 11;
 
 	// Type of the value
-	uint8_t type;
+	uint16_t type : 4;
 
 	// NOTE: Only used in kv pair inside of table
 	// Specifies if this value is optional
-	bool optional;
+	uint16_t isoptional : 1;
 };
+
+// Maximum number of bytes that a toml key can be (including null-terminator)
+#define TOML_MAX_KEY_SIZE 32
 
 // Key/value type in a toml file
 struct toml {
@@ -116,6 +128,13 @@ struct toml {
 
 	// What function gets run before this type is parsed?
 	toml_ctor_fn *ctor;
+
+	// Leave this to 0
+	uint32_t _num_parsed;
+
+	// Set this to the number of values that must be parsed
+	// (number of values that are not optional in this table)
+	uint32_t num_needed;
 
 	// Value of the key-value pair
 	toml_val_t val;
@@ -126,18 +145,41 @@ typedef struct toml_result {
 	// Did everything parse okay?
 	uint64_t okay : 1;
 
+	uint64_t _completely_parsed : 1;
+
 	// If not, here is the line it failed on
-	uint64_t line : 63;
+	uint64_t line : 62;
 
 	// Parsing failed here in this part of the schema
 	const toml_t *in;
+
+	// Optional message explaining what happened
+	const char *msg;
 } toml_result_t;
+
+// Structure to be passed into toml_parse
+typedef struct toml_args {
+	// The source code
+	const uint8_t *src;
+	
+	// Root toml table
+	size_t root_len;
+	toml_t *root_table;
+
+	// Optional user data
+	void *user;
+
+	// Since the parser uses a generation count to check if a value has
+	// been parsed, there needs to be a pointer to the current generation,
+	// this is also useful because then if the generation overflows, the
+	// parser will reset all generation counts (at a cost of time).
+	uint16_t *gen;
+} toml_args_t;
 
 // Parses a toml file using schema and calls the parsing functions in the
 // schema with the user_data parameter.
-toml_result_t toml_parse(const uint8_t *src, size_t root_table_len,
-			const toml_t schema_root_table[static root_table_len],
-			void *user_data);
+// NOTE: the schema 
+toml_result_t toml_parse(const toml_args_t args);
 
 #endif
 
