@@ -1,0 +1,6 @@
+[submodule "src/test/ekutils"]
+	path = src/test/ekutils
+	url = https://github.com/wyatt-radkiewicz/ekutils
+[submodule "ekutils"]
+	path = ekutils
+	url = https://github.com/wyatt-radkiewicz/ekutils

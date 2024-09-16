@@ -3,13 +3,13 @@
 #
 
 # Variables
-SRCS	:=$(shell find src/ -name "*.c")
+SRCS	:=$(shell find src/ -name "*.c") ekutils/src/ek.c
 BUILD	:=build
 OUT	:=$(BUILD)/test
 OBJS	:=$(patsubst %.c,$(BUILD)/%.o,$(SRCS))
 
 # Environment variables
-CFLAGS	:=$(CFLAGS) -DEK_FEATURE_OFF=1 -O0 -g -std=gnu99
+CFLAGS	:=$(CFLAGS) -Iekutils/src/ -DEK_USE_TEST=1 -DEK_USE_UTIL=1 -O0 -g -std=gnu99
 LDFLAGS	:=$(LDFLAGS) -lm
 
 # Build the main executable
