@@ -103,6 +103,7 @@ struct toml_res {
 	const char *msg;
 };
 
+// toml_parse expects an already valid utf-8 string
 toml_res_t toml_parse(const char *src,
 			const toml_table_info_t schema_root,
 			void *arena, // If NULL, arena_len bytes are alloca'd

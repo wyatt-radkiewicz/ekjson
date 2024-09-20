@@ -1,5 +1,6 @@
 #include <alloca.h>
 #include <ctype.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "ektoml.h"
@@ -18,7 +19,7 @@ struct parser {
 
 	toml_res_t res;
 
-	toml_table_info_t *root;
+	toml_table_info_t *root, *table;
 
 	uint8_t *arena_ptr, *arena_end;
 };
@@ -27,94 +28,103 @@ static void set_err_oom(parser_t *parser) {
 	SET_ERR(parser, "out of arena memory");
 }
 
+// Increment newline
+static inline void parser_newline(parser_t *parser) {
+	parser->line++, parser->pos = 1;
+}
+
 static void parse_whitespace(parser_t *parser, bool skip_newline) {
 	while (*parser->src == ' ' || *parser->src == '\t'
 		|| skip_newline && *parser->src == '\n') {
 		parser->pos++;
-		if (*parser->src++ == '\n') {
-			parser->line++;
-			parser->pos = 1;
-		}
+		if (*parser->src++ == '\n') parser_newline(parser);
 	}
 }
 
-// The length of utf8 character
-// Returns 0 if the first character is invalid
-static inline uint32_t utf8_header_char_length(const char start) {
-	const uint32_t clz = __builtin_clz(~(uint8_t)start << 24);
-	const uint32_t leading_len = clz + !clz;
-	if (clz == 1 || leading_len > 4) return 0;
-	return leading_len;
-}
+static bool parse_escape(parser_t *parser) {
+	uint32_t req_digits;
 
-// Should be called on every utf8-character
-static inline bool utf8_arbitrary_byte_valid(const char c) {
-	switch ((uint8_t)c) {
-	case 0xC0: case 0xC1:
-	case 0xF5: case 0xF6: case 0xF7: case 0xF8: case 0xF9:
-	case 0xFA: case 0xFB: case 0xFC: case 0xFD: case 0xFE: case 0xFF:
-		return false;
+	parser->pos++;
+	switch (*parser->src++) {
+	case 'b': *parser->arena_ptr++ = '\b'; return true;
+	case 't': *parser->arena_ptr++ = '\t'; return true;
+	case 'n': *parser->arena_ptr++ = '\n'; return true;
+	case 'f': *parser->arena_ptr++ = '\f'; return true;
+	case 'r': *parser->arena_ptr++ = '\r'; return true;
+	case '"': *parser->arena_ptr++ = '\"'; return true;
+	case '\\': *parser->arena_ptr++ = '\\'; return true;
 	default:
-		return true;
+		SET_ERR(parser, "unknown escape sequence");
+		return false;
+	case 'u': req_digits = 4; break;
+	case 'U': req_digits = 8; break;
 	}
-}
 
-static inline bool utf8_is_continue_byte(const char c) {
-	return (uint8_t)c >= 0x80 && (uint8_t)c <= 0xBF;
-}
+	uint32_t codepoint;
+	const char *start = parser->src, *end = NULL;
 
-// Validate UTF-8 characters coming in (per-spec ofc)
-// and push them onto the arena
-// Returns whether or not it could allocate memory for the character
-// If an invalid UTF-8 character is found, it will deal with it and print
-// out an appropiate replacement character ('�' or U+FFFD in this instance)
-static bool parse_char(parser_t *parser) {
-	uint8_t *const mem_start = parser->arena_ptr;
-	const char *const src_start = parser->src;
-	uint32_t len = utf8_header_char_length(*parser->src);
-	uint32_t codepoint = 0;
-	if (!len || !utf8_arbitrary_byte_valid(*parser->src)) goto err;
+	codepoint = strtoul(start, (char **)&end, 16);
+	if (!end || end - start != req_digits) {
+		SET_ERR(parser, "malformed unicode escape sequence");
+		return false;
+	}
+	parser->pos += end - start, parser->src = end;
 
-	// Make sure we have enough memory for this character
-	if (parser->arena_ptr + len > parser->arena_end) {
-		set_err_oom(parser);
+	if (codepoint >= 0xD800 && codepoint <= 0xDFFF || codepoint > 0x10FFFF) {
+		SET_ERR(parser, "illegal unicode codepoint");
 		return false;
 	}
 
-	// Validate and get first byte
-	switch (len--) {
-	case 4: codepoint |= (*parser->src & 0x07) << 18; break;
-	case 3: codepoint |= (*parser->src & 0x0F) << 12; break;
-	case 2: codepoint |= (*parser->src & 0x1F) << 6; break;
-	case 1: codepoint = *parser->src; break;
+	// Write the codepoint
+	if (codepoint < 0x80) {
+		if (parser->arena_ptr == parser->arena_end) {
+			set_err_oom(parser);
+			return false;
+		}
+		*parser->arena_ptr++ = codepoint;
+	} else if (codepoint < 0x800) {
+		if (parser->arena_ptr + 2 > parser->arena_end) {
+			set_err_oom(parser);
+			return false;
+		}
+		*parser->arena_ptr++ = 0xC0 | codepoint >> 6 & 0x1F;
+		*parser->arena_ptr++ = 0x80 | codepoint >> 0 & 0x3F;
+	} else if (codepoint < 0x10000) {
+		if (parser->arena_ptr + 3 > parser->arena_end) {
+			set_err_oom(parser);
+			return false;
+		}
+		*parser->arena_ptr++ = 0xE0 | codepoint >> 12 & 0x0F;
+		*parser->arena_ptr++ = 0x80 | codepoint >> 6 & 0x3F;
+		*parser->arena_ptr++ = 0x80 | codepoint >> 0 & 0x3F;
+	} else {
+		if (parser->arena_ptr + 4 > parser->arena_end) {
+			set_err_oom(parser);
+			return false;
+		}
+		*parser->arena_ptr++ = 0xF0 | codepoint >> 18 & 0x07;
+		*parser->arena_ptr++ = 0x80 | codepoint >> 12 & 0x3F;
+		*parser->arena_ptr++ = 0x80 | codepoint >> 6 & 0x3F;
+		*parser->arena_ptr++ = 0x80 | codepoint >> 0 & 0x3F;
 	}
-	*parser->arena_ptr++ = *parser->src++;
-	if (!len) return true;
 
-	// Validate continuation bytes
-	for (; len; len--) {
-		if (*parser->src == '\0') goto err;
-		if (!utf8_is_continue_byte(*parser->src)) goto err;
-		if (!utf8_arbitrary_byte_valid(*parser->src)) goto err;
-		codepoint |= (*parser->src & 0x3F) << (len * 6);
-		*parser->arena_ptr++ = *parser->src++;
-	}
-
-	// Validate codepoint
-	if (codepoint > 0x10FFFF || codepoint > 0xD800 && codepoint <= 0xDFFF) goto err;
 	return true;
+}
 
-err:
-	parser->arena_ptr = mem_start;
-	parser->src = src_start + 1;
-	if (parser->arena_ptr + 3 > parser->arena_end) {
+static inline bool parse_char(parser_t *parser) {
+	if (parser->arena_ptr == parser->arena_end) {
 		set_err_oom(parser);
 		return false;
 	}
-	memcpy(parser->arena_ptr, (char []){'\xEF', '\xBF', '\xBD'}, 3);
-	parser->arena_ptr += 3;
 
-	return false;
+	const char c = *parser->src++;
+	parser->pos++;
+
+	if (c == '\\') return parse_escape(parser);
+	if (c == '\n') parser_newline(parser);
+
+	*parser->arena_ptr++ = c;
+	return true;
 }
 
 static char *parse_string(parser_t *parser) {
@@ -129,7 +139,7 @@ static char *parse_string(parser_t *parser) {
 	while (*parser->src != start) {
 		if (!parse_char(parser)) return NULL;
 	}
-	if (parser->arena_ptr >= parser->arena_end) {
+	if (parser->arena_ptr == parser->arena_end) {
 		set_err_oom(parser);
 		return NULL;
 	}
@@ -144,6 +154,34 @@ static char *parse_string(parser_t *parser) {
 	} else {
 		parser->src += 1, parser->pos += 1;
 	}
+
+	return str;
+}
+
+static inline bool istoml_keychar(const char c) {
+	return isalnum(c) || c == '_' || c == '-';
+}
+
+static char *parse_word(parser_t *parser) {
+	char *const str = (char *)parser->arena_ptr;
+
+	if (!istoml_keychar(*parser->src)) {
+		SET_ERR(parser, "expected key");
+		return NULL;
+	}
+
+	while (istoml_keychar(*parser->src)) {
+		if (parser->arena_ptr == parser->arena_end) {
+			set_err_oom(parser);
+			return NULL;
+		}
+		parser->src++, parser->pos++;
+	}
+	if (parser->arena_ptr == parser->arena_end) {
+		set_err_oom(parser);
+		return NULL;
+	}
+	*parser->arena_ptr++ = '\0';
 
 	return str;
 }
@@ -169,6 +207,138 @@ static void skip_bom(parser_t *parser) {
 	}
 }
 
+static int search_key(parser_t *parser, toml_table_info_t *table,
+				const char *key) {
+	if (table->len < 8) {
+		for (int i = 0; i < table->len; i++) {
+			if (strcmp(table->start[i].name, key) != 0) continue;
+			return i;
+		}
+	} else {
+		int last = 0;
+		for (int i = table->len / 2; last != i;) {
+			last = i;
+			int order = strcmp(key, table->start[i].name);
+			if (order < 0) {
+				i /= 2;
+			} else if (order > 0) {
+				i += (table->len - i) / 2;
+			} else {
+				return i;
+			}
+		}
+	}
+
+	SET_ERR(parser, "key name not found");
+	return -1;
+}
+
+static char *parse_single_key(parser_t *parser) {
+	if (*parser->src == '"' || *parser->src == '\'') return parse_string(parser);
+	else return parse_word(parser);
+}
+
+static toml_table_info_t *keyid_add_table_info(parser_t *parser,
+						toml_table_info_t *table,
+						int keyid) {
+	const toml_t *key = table->start + keyid;
+
+	if (key->val.type != TOML_TABLE) {
+		SET_ERR(parser, "expected type to be table");
+		return NULL;
+	}
+
+	const toml_table_info_t tableinf = key->val.load_table(table->data);
+	if (!tableinf.start) return NULL;
+
+	toml_table_info_t *new_table = add_table_info(parser, tableinf);
+	if (!new_table) return NULL;
+	table->_kv[keyid] = new_table;
+	return new_table;
+}
+
+// Returns keyid found in table
+static int parse_key(parser_t *parser, toml_table_info_t **table) {
+	char *name;
+
+	while (true) {
+		// Get the name of the key
+		parse_whitespace(parser, false);
+		if (!(name = parse_single_key(parser))) return -1;
+		parse_whitespace(parser, false);
+
+		// Search for it in the current table
+		int keyid = search_key(parser, *table, name);
+		if (keyid != -1) return -1;
+		parser->arena_ptr = (uint8_t *)name;
+
+		// End
+		if (*parser->src != '.') return keyid;
+
+		// Get table from table if we used . operator
+		if (!(*table = keyid_add_table_info(parser, *table, keyid))) return -1;
+	}
+}
+
+static void *parse_value(parser_t *parser, const toml_val_t *val) {
+	parse_whitespace(parser, false);
+
+	return NULL;
+}
+
+// Look for table headers eg. [table]
+static bool parse_table_header(parser_t *parser) {
+	parser->src++;
+	parser->table = parser->root;
+
+	int keyid;
+	if ((keyid = parse_key(parser, &parser->table)) == -1) return false;
+	if (!(parser->table = keyid_add_table_info(parser,
+						parser->table, keyid))) return false;
+	if (*parser->src++ != ']') {
+		SET_ERR(parser, "expected ']' after table");
+		return false;
+	}
+	parser->pos++;
+	parse_whitespace(parser, false);
+	if (*parser->src++ != '\n') {
+		SET_ERR(parser, "expected newline after table");
+		return false;
+	}
+	parser->pos++;
+	parser_newline(parser);
+
+	return true;
+}
+
+static bool parse_keyvalue(parser_t *parser) {
+	toml_table_info_t *table = parser->table;
+	int keyid;
+
+	if ((keyid = parse_key(parser, &table)) == -1) return false;
+	if (*parser->src++ != '=') {
+		SET_ERR(parser, "expected '=' after key");
+		return false;
+	}
+	parser->pos++;
+
+	void *val;
+	if (!(val = parse_value(parser, &table->start[keyid].val))) return false;
+	table->_kv[keyid] = val;
+
+	return true;
+}
+
+// Returns whether or not to parse another line
+static bool parse_line(parser_t *parser) {
+	parse_whitespace(parser, true);
+	switch (*parser->src) {
+	case '[': return parse_table_header(parser);
+	case '\0': return false;
+	default: return parse_keyvalue(parser);
+	}
+}
+
 toml_res_t toml_parse(const char *src, const toml_table_info_t schema_root,
 			void *arena, size_t arena_len) {
 	if (!arena_len) arena_len = 1024 * 4;
@@ -186,6 +356,8 @@ toml_res_t toml_parse(const char *src, const toml_table_info_t schema_root,
 	};
 	skip_bom(parser);
 	if (!(parser->root = add_table_info(parser, schema_root))) goto end;
+	parser->table = parser->root;
+	while (parse_line(parser));
 
 end:
 	return parser->res;
