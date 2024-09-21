@@ -9,6 +9,7 @@
 typedef enum toml_type {
 	TOML_STRING,
 	TOML_INT,
+	TOML_UINT,
 	TOML_FLOAT,
 	TOML_BOOL,
 	TOML_DATETIME_UNIX,
@@ -58,6 +59,7 @@ struct toml_array_info {
 
 typedef bool toml_load_string_fn(void *parent_data, const char *val);
 typedef bool toml_load_int_fn(void *parent_data, int64_t val);
+typedef bool toml_load_uint_fn(void *parent_data, uint64_t val);
 typedef bool toml_load_float_fn(void *parent_data, double val);
 typedef bool toml_load_bool_fn(void *parent_data, bool val);
 typedef bool toml_load_datetime_unix_fn(void *parent_data, struct timespec val);
@@ -75,6 +77,7 @@ struct toml_val {
 	union {
 		toml_load_string_fn *load_string;
 		toml_load_int_fn *load_int;
+		toml_load_uint_fn *load_uint;
 		toml_load_float_fn *load_float;
 		toml_load_bool_fn *load_bool;
 		toml_load_datetime_unix_fn *load_datetime_unix;
