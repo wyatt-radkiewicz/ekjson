@@ -2,115 +2,71 @@
 #define _ektoml_h_
 
 #include <stdbool.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <time.h>
 
-typedef enum toml_type {
-	TOML_STRING,
-	TOML_INT,
-	TOML_UINT,
-	TOML_FLOAT,
-	TOML_BOOL,
-	TOML_DATETIME_UNIX,
-	TOML_DATETIME,
-	TOML_DATE,
-	TOML_TIME,
-	TOML_ARRAY,
-	TOML_TABLE,
-	TOML_ANY,
-} toml_type_t;
+// Define these macros to use different versions of the json parser
+//
+// Uncommenting this makes the library work with big endian processors
+#ifndef JSON_LITTLE
+#define JSON_LITTLE 1
+#endif
+//
+// Uncommenting this enables the parser to break chunks up into 4 or 8
+// bytes per loop iteration.
+//#define JSON_BITWISE_SIMD 1
+//
+// Uncommenting this enables x86_64 SSE extensions for the parser
+//#define JSON_SSE 1
+//
+// Uncommenting this enable Arm NEON extensions for the parser
+//#define JSON_NEON 1
+//
 
-typedef struct toml toml_t;
-typedef struct toml_val toml_val_t;
-typedef struct toml_res toml_res_t;
-typedef struct toml_table_info toml_table_info_t;
-typedef struct toml_array_info toml_array_info_t;
+#define JSON_OBJECT 0			// JSON Object
+#define JSON_LITERAL_STRING 1		// JSON String with no escape chars
+#define JSON_STRING 2			// JSON String
+#define JSON_ARRAY 3			// JSON Array
+#define JSON_NUMBER 4			// JSON Number
+#define JSON_TRUE 5			// JSON Bool (true)
+#define JSON_FALSE 6			// JSON Bool (false)
+#define JSON_NULL 7			// JSON Null
 
-struct toml_table_info {
-	// Custom data
-	void *data;
+// Main building block of a JSON document
+struct jsontok {
+	// Number of chars until next token
+	unsigned next;
 
-	// Leave NULL to signify error
-	// This points to key-value pairs of the table ordered
-	// alphebetically by key name
-	const toml_t *start;
+	// type of the token
+	unsigned type : 3;
 
-	// Length of table array
-	// If this is 0, then this table can have a variable amount of kv-pairs
-	size_t len;
-
-	// Used internally, no need to allocate room for it
-	void *_kv[];
-};
-struct toml_array_info {
-	// Custom data
-	void *data;
-
-	// Leave NULL to signify error
-	const toml_val_t *type;
-
-	// Maximum length of the array (0 for flexible sized arrays)
-	uint32_t cap;
-
-	// Used internally, no need to allocate room for it
-	uint32_t _len;
+	// Number of child tokens for this token
+	// (Only applicable to arrays and objects)
+	unsigned len : sizeof(unsigned) * 8 - 3;
 };
 
-typedef bool toml_load_string_fn(void *parent_data, const char *val);
-typedef bool toml_load_int_fn(void *parent_data, int64_t val);
-typedef bool toml_load_uint_fn(void *parent_data, uint64_t val);
-typedef bool toml_load_float_fn(void *parent_data, double val);
-typedef bool toml_load_bool_fn(void *parent_data, bool val);
-typedef bool toml_load_datetime_unix_fn(void *parent_data, struct timespec val);
-typedef bool toml_load_datetime_fn(void *parent_data, struct tm datetime, uint32_t nano);
-typedef bool toml_load_date_fn(void *parent_data, struct tm date);
-typedef bool toml_load_time_fn(void *parent_data, uint32_t hour, uint32_t min,
-				struct timespec sec);
-typedef void toml_load_any_fn(void *parent_data, toml_type_t type, void *val);
-typedef toml_table_info_t toml_load_table_fn(void *parent_data);
-typedef toml_array_info_t toml_load_array_fn(void *parent_data);
+// Returns a pointer to where an error occurred if it did.
+// If no errors were present, then it returns NULL. Do note though that if
+// extensions are being used the source should be aligned to an 4 or 8 byte
+// boundary (depending on extension)
+struct jsondata {
+	const char *errloc;
+	unsigned start;
+} json_parse(const char *src, struct jsontok *toks, unsigned ntoks);
 
-struct toml_val {
-	toml_type_t type;
-	bool optional;
-	union {
-		toml_load_string_fn *load_string;
-		toml_load_int_fn *load_int;
-		toml_load_uint_fn *load_uint;
-		toml_load_float_fn *load_float;
-		toml_load_bool_fn *load_bool;
-		toml_load_datetime_unix_fn *load_datetime_unix;
-		toml_load_datetime_fn *load_datetime;
-		toml_load_date_fn *load_date;
-		toml_load_time_fn *load_time;
-		toml_load_any_fn *load_any;
-		toml_load_table_fn *load_table;
-		toml_load_array_fn *load_array;
-	};
-};
-
-struct toml {
-	const char *name;
-	const toml_val_t val;
-};
-
-struct toml_res {
-	// Did an error occur?
-	bool ok;
-
-	// Where in the source code the error occurred
-	uint32_t line, pos;
-
-	// Diagnosis info for the error
-	const char *msg;
-};
-
-// toml_parse expects an already valid utf-8 string
-toml_res_t toml_parse(const char *src,
-			const toml_table_info_t schema_root,
-			void *arena, // If NULL, arena_len bytes are alloca'd
-			size_t arena_len); // If 0, default is 4kb
+// Tests if a json string is equal to a normal c string
+bool json_streq(const char *jstr, const char *str);
+// Escapes a json string and stores it in a buffer
+// Returns if the buffer was big enough for the string
+bool json_str(const char *jstr, char *buf, unsigned buflen);
+// Gets the length of a json string in bytes when chars are escaped
+// Returns 0 if the string is malformed
+unsigned json_len(const char *jstr);
+// Returns the json value parsed. Returns NAN if there was an error
+double json_num(const char *jnum);
+// Returns whether or not a json value is valid
+bool json_validate_value(const char *jval, int type);
+// Returns NULL if the string is a valid utf-8 string
+// If it is not, it will return the first invalid character
+const char *json_validate_utf8(const char *str);
 
 #endif
 
