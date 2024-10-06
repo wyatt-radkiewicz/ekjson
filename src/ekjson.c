@@ -2,7 +2,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "ektoml.h"
+#include "ekjson.h"
 
 // Returns 0xFFFFFFFF for anything that is not a digit
 static uint32_t hextou32(const uint8_t h) {

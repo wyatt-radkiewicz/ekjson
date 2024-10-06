@@ -1,5 +1,5 @@
-#ifndef _ektoml_h_
-#define _ektoml_h_
+#ifndef _ekjson_h_
+#define _ekjson_h_
 
 #include <stdbool.h>
 
