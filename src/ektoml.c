@@ -108,108 +108,159 @@ static struct escape escape(const char **const jstr) {
 static unsigned value(const char **src, struct jsontok *toks,
 		unsigned ntoks, unsigned tok);
 
-struct jsondata json_parse(const char *src, struct jsontok *toks,
+const char *json_parse(const char *src, struct jsontok *toks,
 			unsigned ntoks) {
-	struct jsondata data = { .start = whitespace(&src) };
-	toks[0] = (struct jsontok){0};
-	if (!value(&src, toks, ntoks, 0)) data.errloc = src;
-	return data;
+	toks[0] = (struct jsontok){ .type = JSON_NULL };
+	if (!value(&src, toks, ntoks, 0)) return src;
+	return NULL;
 }
 
 static unsigned basic_value_end(const char **src, struct jsontok *tok) {
-	for (; **src != '\0' && **src != '{'
+	for (; **src != '\0' && **src != '}' && **src != ':'
 		&& **src != '[' && **src != ','; ++*src, ++tok->next);
 	return 1;
 }
 
+static unsigned array(const char **src, struct jsontok *toks,
+			unsigned ntoks, unsigned tok) {
+	const char *const start = *src;
+	struct jsontok *arr = toks + ++tok;
+	arr->type = JSON_ARRAY;
+	arr->len = 0;
+	
+	// Parse key value pairs until you find a ] instead of ,
+	whitespace(src);
+	while (**src != ']') {
+		// Parse value
+		if (!(arr->len += value(src, toks, ntoks, tok))) return 0;
+		whitespace(src);
+		if (**src == ',') ++*src;
+	}
+	
+	arr->next = *src - start;
+	return 1 + arr->len;
+}
+
+static unsigned string(const char **src, struct jsontok *toks, unsigned tok) {
+	const char *const start = *src;
+	struct jsontok *str = toks + ++tok;
+	str->type = JSON_STRING;
+	
+	// Continue until , } \0 or ] again, but NOT in string
+	while (true) {
+		for (; **src != '"' && **src != '\\'; ++*src);
+		if (**src == '"') break;
+
+		const struct escape e = escape(src);
+		if (e.len == 0) return 0;
+	}
+
+	str->next = str->len = *src - start;
+	return basic_value_end(src, toks + tok);
+}
+
+static unsigned object(const char **src, struct jsontok *toks,
+			unsigned ntoks, unsigned tok) {
+	const char *const start = *src;
+	struct jsontok *obj = toks + ++tok;
+	obj->type = JSON_OBJECT;
+	obj->len = 0;
+	
+	// Parse key value pairs until you find a } instead of ,
+	whitespace(src);
+	while (**src != '}') {
+		// Parse string first
+		if (*(*src)++ != '"' || ++tok == ntoks) return 0;
+		if (!string(src, toks, tok)) return 0;
+		if (*(*src)++ != ':') return 0;
+		obj->len++;
+
+		// Parse value
+		if (!(obj->len += value(src, toks, ntoks, tok))) return 0;
+		whitespace(src);
+		if (**src == ',') ++*src;
+	}
+	
+	obj->next = *src - start;
+	return 1 + obj->len;
+}
+
 // Returns the number of tokens this value took up
 static unsigned value(const char **src, struct jsontok *toks,
-		unsigned ntoks, unsigned tok) {
+			unsigned ntoks, unsigned tok) {
 	toks[tok++].next += whitespace(src);
-	switch (**src) {
+	if (tok + 1 > ntoks) return 0;
+
+	switch (*(*src)++) {
 	case '0': case '1': case '2': case '3': case '4':
 	case '5': case '6': case '7': case '8': case '9':
-		toks[tok].type = JSON_NUMBER;
-		return basic_value_end(src, toks + tok);
-	case 't': toks[tok].type = JSON_TRUE;
-		  return basic_value_end(src, toks + tok);
-	case 'f': toks[tok].type = JSON_FALSE;
-		  return basic_value_end(src, toks + tok);
-	case 'n': toks[tok].type = JSON_NULL;
-		  return basic_value_end(src, toks + tok);
+		toks[++tok].type = JSON_NUMBER; break;
+	case 't': toks[++tok].type = JSON_TRUE; break;
+	case 'f': toks[++tok].type = JSON_FALSE; break;
+	case 'n': toks[++tok].type = JSON_NULL; break;
 
 	// Long paths
-	case '"':
-		toks[tok].type = JSON_STRING;
-		break;
-	case '[':
-		toks[tok].type = JSON_ARRAY;
-		break;
-	case '{':
-		toks[tok].type = JSON_OBJECT;
-		break;
-	default:
-		return 0;
+	case '"': toks[tok++].next++; return string(src, toks, tok);
+	case '[': toks[tok++].next++; return array(src, toks, ntoks, tok);
+	case '{': toks[tok++].next++; return object(src, toks, ntoks, tok);
+	default: return 0;
 	}
+	
+	toks[tok].next = 1;
+	return basic_value_end(src, toks + tok);
 }
 
 // Default niave impelmentation
 bool json_streq(const char *jstr, const char *str) {
-hit_escape:
-	for (; *jstr != '"' && *jstr != '\\'; jstr++, str++) {
-		if (*jstr != *str) return false;
-	}
-	if (*jstr == '"') return true;
-	
-	// Test escape character
-	const struct escape e = escape(&jstr);
-	switch (e.len) {
-	case 0: return false;
-	case 4: if (e.buf[3] != str[3]) return false;
-	case 3: if (e.buf[2] != str[2]) return false;
-	case 2: if (e.buf[1] != str[1]) return false;
-	case 1: if (e.buf[0] != str[0]) return false;
-	}
+	while (true) {
+		for (; *jstr != '"' && *jstr != '\\'; jstr++, str++) {
+			if (*jstr != *str) return false;
+		}
+		if (*jstr == '"') return true;
+		
+		// Test escape character
+		const struct escape e = escape(&jstr);
+		switch (e.len) {
+		case 0: return false;
+		case 4: if (e.buf[3] != str[3]) return false;
+		case 3: if (e.buf[2] != str[2]) return false;
+		case 2: if (e.buf[1] != str[1]) return false;
+		case 1: if (e.buf[0] != str[0]) return false;
+		}
 
-	str += e.len;
-	goto hit_escape;
+		str += e.len;
+	}
 }
 
 // Default implementation
 bool json_str(const char *jstr, char *buf, unsigned buflen) {
-	char *const end = buf + buflen;
+	for (char *const end = buf + buflen;;) {
+		for (; *jstr != '"' && *jstr != '\\' && buf < end; jstr++, buf++) {
+			if (*jstr != *buf) return false;
+		}
+		if (*jstr == '"') return true;
+		
+		// Test escape character
+		const struct escape e = escape(&jstr);
+		if (e.len == 0 || buf + e.len >= end) return false;
+		switch (e.len) {
+		case 4: if (e.buf[3] != buf[3]) return false;
+		case 3: if (e.buf[2] != buf[2]) return false;
+		case 2: if (e.buf[1] != buf[1]) return false;
+		case 1: if (e.buf[0] != buf[0]) return false;
+		}
 
-hit_escape:
-	for (; *jstr != '"' && *jstr != '\\' && buf < end; jstr++, buf++) {
-		if (*jstr != *buf) return false;
+		buf += e.len;
 	}
-	if (*jstr == '"') return true;
-	
-	// Test escape character
-	const struct escape e = escape(&jstr);
-	if (e.len == 0 || buf + e.len >= end) return false;
-	switch (e.len) {
-	case 4: if (e.buf[3] != buf[3]) return false;
-	case 3: if (e.buf[2] != buf[2]) return false;
-	case 2: if (e.buf[1] != buf[1]) return false;
-	case 1: if (e.buf[0] != buf[0]) return false;
-	}
-
-	buf += e.len;
-	goto hit_escape;
 }
 
 unsigned json_len(const char *jstr) {
-	unsigned len = 0;
-
-hit_escape:
-	for (; *jstr != '"' && *jstr != '\\'; jstr++, len++);
-	if (*jstr == '"') return len;
-	
-	// Test escape character
-	const struct escape e = escape(&jstr);
-	if (!(len += e.len)) return 0;
-	else goto hit_escape;
+	for (unsigned len = 0;;) {
+		for (; *jstr != '"' && *jstr != '\\'; jstr++, len++);
+		if (*jstr == '"') return len;
+		const struct escape e = escape(&jstr);
+		if (!(len += e.len)) return 0;
+	}
 }
 
 // Default implementation (slow, but works)

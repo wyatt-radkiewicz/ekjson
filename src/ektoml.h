@@ -28,6 +28,9 @@
 #define JSON_NUMBER 4			// JSON Number
 #define JSON_TRUE 5			// JSON Bool (true)
 #define JSON_FALSE 6			// JSON Bool (false)
+
+// jsontok arrays are special in that they always start out with null to
+// denote how much whitespace is present at the start of the document
 #define JSON_NULL 7			// JSON Null
 
 // Main building block of a JSON document
@@ -47,10 +50,7 @@ struct jsontok {
 // If no errors were present, then it returns NULL. Do note though that if
 // extensions are being used the source should be aligned to an 4 or 8 byte
 // boundary (depending on extension)
-struct jsondata {
-	const char *errloc;
-	unsigned start;
-} json_parse(const char *src, struct jsontok *toks, unsigned ntoks);
+const char *json_parse(const char *src, struct jsontok *toks, unsigned ntoks);
 
 // Tests if a json string is equal to a normal c string
 bool json_streq(const char *jstr, const char *str);
