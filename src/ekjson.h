@@ -35,14 +35,15 @@
 
 // Main building block of a JSON document
 struct jsontok {
-	// Number of chars until next token
-	unsigned next;
+	// Start of the token (in offset from start of source string in bytes)
+	unsigned start;
 
 	// type of the token
 	unsigned type : 3;
 
-	// Number of child tokens for this token
-	// (Only applicable to arrays and objects)
+	// Number of tokens for this node
+	// (Number of children + 1 for objects)
+	// (Length of array + 1 for arrays)
 	unsigned len : sizeof(unsigned) * 8 - 3;
 };
 

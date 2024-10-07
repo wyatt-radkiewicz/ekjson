@@ -4,6 +4,12 @@
 
 #include "ekjson.h"
 
+struct state {
+	const char *start, *src;
+	struct jsontok *toks;
+	unsigned ntoks, tok;
+};
+
 // Returns 0xFFFFFFFF for anything that is not a digit
 static uint32_t hextou32(const uint8_t h) {
 	const static uint8_t t[256] = {
@@ -45,11 +51,9 @@ static double _pow10(int n) {
 	return x;
 }
 
-static unsigned whitespace(const char **src) {
-	unsigned len = 0;
+static void whitespace(const char **src) {
 	for (; **src == ' ' || **src == '\n'
-		|| **src == '\r' || **src == '\t'; ++*src, ++len);
-	return len;
+		|| **src == '\r' || **src == '\t'; ++*src);
 }
 
 // Default implementation;
@@ -105,109 +109,115 @@ static struct escape escape(const char **const jstr) {
 	return e;
 }
 
-static unsigned value(const char **src, struct jsontok *toks,
-		unsigned ntoks, unsigned tok);
+static unsigned value(struct state *state);
 
 const char *json_parse(const char *src, struct jsontok *toks,
 			unsigned ntoks) {
-	toks[0] = (struct jsontok){ .type = JSON_NULL };
-	if (!value(&src, toks, ntoks, 0)) return src;
-	return NULL;
+	struct state state = {
+		.start = src,
+		.src = src,
+		.toks = toks,
+		.ntoks = ntoks,
+		.tok = 0,
+	};
+
+	// Get root value
+	return value(&state) ? NULL : src;
 }
 
-static unsigned basic_value_end(const char **src, struct jsontok *tok) {
-	for (; **src != '\0' && **src != '}' && **src != ':'
-		&& **src != '[' && **src != ','; ++*src, ++tok->next);
-	return 1;
-}
-
-static unsigned array(const char **src, struct jsontok *toks,
-			unsigned ntoks, unsigned tok) {
-	const char *const start = *src;
-	struct jsontok *arr = toks + ++tok;
+static unsigned array(struct state *state, struct jsontok *arr) {
 	arr->type = JSON_ARRAY;
-	arr->len = 0;
-	
+
 	// Parse key value pairs until you find a ] instead of ,
-	whitespace(src);
-	while (**src != ']') {
+	whitespace(&state->src);
+	while (*state->src != ']') {
 		// Parse value
-		if (!(arr->len += value(src, toks, ntoks, tok))) return 0;
-		whitespace(src);
-		if (**src == ',') ++*src;
+		unsigned tmp = value(state);
+		if (!tmp) return 0;
+		arr->len += tmp;
+		whitespace(&state->src);
+		if (*state->src == ',') ++state->src;
 	}
+	state->src++;
 	
-	arr->next = *src - start;
-	return 1 + arr->len;
+	return arr->len;
 }
 
-static unsigned string(const char **src, struct jsontok *toks, unsigned tok) {
-	const char *const start = *src;
-	struct jsontok *str = toks + ++tok;
+static unsigned string(struct state *state, struct jsontok *str) {
+	str->start++;
 	str->type = JSON_STRING;
 	
 	// Continue until , } \0 or ] again, but NOT in string
 	while (true) {
-		for (; **src != '"' && **src != '\\'; ++*src);
-		if (**src == '"') break;
+		for (; *state->src != '"' && *state->src != '\\';
+			++state->src);
+		if (*state->src == '"') {
+			state->src++;
+			return str->len;
+		}
 
-		const struct escape e = escape(src);
+		const struct escape e = escape(&state->src);
 		if (e.len == 0) return 0;
 	}
-
-	str->next = str->len = *src - start;
-	return basic_value_end(src, toks + tok);
 }
 
-static unsigned object(const char **src, struct jsontok *toks,
-			unsigned ntoks, unsigned tok) {
-	const char *const start = *src;
-	struct jsontok *obj = toks + ++tok;
+static unsigned object(struct state *state, struct jsontok *obj) {
 	obj->type = JSON_OBJECT;
-	obj->len = 0;
 	
 	// Parse key value pairs until you find a } instead of ,
-	whitespace(src);
-	while (**src != '}') {
+	whitespace(&state->src);
+	while (*state->src != '}') {
 		// Parse string first
-		if (*(*src)++ != '"' || ++tok == ntoks) return 0;
-		if (!string(src, toks, tok)) return 0;
-		if (*(*src)++ != ':') return 0;
+		if (*state->src++ != '"'
+			|| state->tok == state->ntoks) return 0;
+		struct jsontok *str = state->toks + state->tok++;
+		str->start = state->src - state->start;
+		str->len = 1;
+		if (!string(state, str)) return 0;
+		if (*state->src++ != ':') return 0;
 		obj->len++;
 
 		// Parse value
-		if (!(obj->len += value(src, toks, ntoks, tok))) return 0;
-		whitespace(src);
-		if (**src == ',') ++*src;
+		unsigned tmp = value(state);
+		if (!tmp) return 0;
+		obj->len += tmp;
+		str->len += tmp;
+
+		whitespace(&state->src);
+		if (*state->src == ',') ++state->src;
 	}
-	
-	obj->next = *src - start;
-	return 1 + obj->len;
+	state->src++;
+
+	return obj->len;
 }
 
 // Returns the number of tokens this value took up
-static unsigned value(const char **src, struct jsontok *toks,
-			unsigned ntoks, unsigned tok) {
-	toks[tok++].next += whitespace(src);
-	if (tok + 1 > ntoks) return 0;
+static unsigned value(struct state *state) {
+	whitespace(&state->src);
+	if (state->tok == state->ntoks) return 0;
+	struct jsontok *tok = state->toks + state->tok++;
+	tok->start = state->src - state->start;
+	tok->len = 1;
 
-	switch (*(*src)++) {
+	switch (*state->src++) {
 	case '0': case '1': case '2': case '3': case '4':
 	case '5': case '6': case '7': case '8': case '9':
-		toks[++tok].type = JSON_NUMBER; break;
-	case 't': toks[++tok].type = JSON_TRUE; break;
-	case 'f': toks[++tok].type = JSON_FALSE; break;
-	case 'n': toks[++tok].type = JSON_NULL; break;
+		tok->type = JSON_NUMBER; break;
+	case 't': tok->type = JSON_TRUE; break;
+	case 'f': tok->type = JSON_FALSE; break;
+	case 'n': tok->type = JSON_NULL; break;
 
 	// Long paths
-	case '"': toks[tok++].next++; return string(src, toks, tok);
-	case '[': toks[tok++].next++; return array(src, toks, ntoks, tok);
-	case '{': toks[tok++].next++; return object(src, toks, ntoks, tok);
-	default: return 0;
+	case '"': if (!string(state, tok)) return 0; else break;
+	case '[': if (!array(state, tok)) return 0; else break;
+	case '{': if (!object(state, tok)) return 0; else break;
+	case '\0': return 0;
+	default: return 1;
 	}
 	
-	toks[tok].next = 1;
-	return basic_value_end(src, toks + tok);
+	for (; *state->src != '\0' && *state->src != '}' && *state->src != ':'
+		&& *state->src != ']' && *state->src != ','; ++state->src);
+	return tok->len;
 }
 
 // Default niave impelmentation
@@ -235,10 +245,15 @@ bool json_streq(const char *jstr, const char *str) {
 // Default implementation
 bool json_str(const char *jstr, char *buf, unsigned buflen) {
 	for (char *const end = buf + buflen;;) {
-		for (; *jstr != '"' && *jstr != '\\' && buf < end; jstr++, buf++) {
+		for (; *jstr != '"' && *jstr != '\\' && buf < end;
+			jstr++, buf++) {
 			if (*jstr != *buf) return false;
 		}
-		if (*jstr == '"') return true;
+		if (*jstr == '"') {
+			if (buf == end) return false;
+			*buf++ = '\0';
+			return true;
+		}
 		
 		// Test escape character
 		const struct escape e = escape(&jstr);
@@ -257,7 +272,7 @@ bool json_str(const char *jstr, char *buf, unsigned buflen) {
 unsigned json_len(const char *jstr) {
 	for (unsigned len = 0;;) {
 		for (; *jstr != '"' && *jstr != '\\'; jstr++, len++);
-		if (*jstr == '"') return len;
+		if (*jstr == '"') return len + 1;
 		const struct escape e = escape(&jstr);
 		if (!(len += e.len)) return 0;
 	}
