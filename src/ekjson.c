@@ -149,8 +149,8 @@ static unsigned string(struct state *state, struct jsontok *str) {
 	
 	// Continue until , } \0 or ] again, but NOT in string
 	while (true) {
-		for (; *state->src != '"' && *state->src != '\\';
-			++state->src);
+		for (; *state->src != '"' && *state->src != '\\'
+			&& *state->src != '\0'; ++state->src);
 		if (*state->src == '"') {
 			state->src++;
 			return str->len;
@@ -168,10 +168,10 @@ static unsigned object(struct state *state, struct jsontok *obj) {
 	whitespace(&state->src);
 	while (*state->src != '}') {
 		// Parse string first
-		if (*state->src++ != '"'
-			|| state->tok == state->ntoks) return 0;
+		if (state->tok == state->ntoks
+			|| *state->src != '"') return 0;
 		struct jsontok *str = state->toks + state->tok++;
-		str->start = state->src - state->start;
+		str->start = state->src++ - state->start;
 		str->len = 1;
 		if (!string(state, str)) return 0;
 		if (*state->src++ != ':') return 0;
