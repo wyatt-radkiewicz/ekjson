@@ -1,3 +1,5 @@
+#include <stdint.h>
+
 #include "../ekjson.h"
 #include "ek.h"
 
@@ -27,6 +29,10 @@
 		fprintf(stderr, "token %d len: %d != %d\n", \
 			__idx, toks[__idx].len, _len); \
 		return false; \
+	} \
+	if (!json_validate_value(__src, toks[__idx], _type)) { \
+		fprintf(stderr, "token %d didn't pass validation!\n", __idx); \
+		return false; \
 	}
 #define CHECK_START \
 	{ \
@@ -37,13 +43,23 @@
 	CHECK_START \
 		CHECK_BASE(_type, _size, _len) \
 	CHECK_END
-#define CHECK_NUMBER(_start, _num) \
+#define CHECK_FLOAT(_start, _num) \
 	CHECK_START \
 		CHECK_BASE(JSON_NUMBER, _start, 1) \
-		const double num = json_num(__src + toks[__idx].start); \
-		if (num != (double)_num) { \
+		const double num = json_flt(__src + toks[__idx].start); \
+		if (num != _num) { \
 			fprintf(stderr, "token %d num: %f != %f\n", \
 				__idx, num, (double)_num); \
+			return false; \
+		} \
+	CHECK_END
+#define CHECK_INT(_start, _num) \
+	CHECK_START \
+		CHECK_BASE(JSON_NUMBER, _start, 1) \
+		const int64_t num = json_int(__src + toks[__idx].start); \
+		if (num != _num) { \
+			fprintf(stderr, "token %d int: %lld != %lld\n", \
+				__idx, num, (int64_t)_num); \
 			return false; \
 		} \
 	CHECK_END
@@ -94,38 +110,38 @@ TEST_SETUP(array_empty, "[]", 64)
 TEST_END
 TEST_SETUP(array_float, "[3.14]", 64)
 	CHECK_SIMPLE(JSON_ARRAY, 1, 2)
-	CHECK_NUMBER(5, 3.14)
+	CHECK_FLOAT(5, 3.14)
 TEST_END
 TEST_SETUP(array_floats, "[1.2,3.4,5.6]", 64)
 	CHECK_SIMPLE(JSON_ARRAY, 1, 4)
-	CHECK_NUMBER(4, 1.2)
-	CHECK_NUMBER(4, 3.4)
-	CHECK_NUMBER(4, 5.6)
+	CHECK_FLOAT(4, 1.2)
+	CHECK_FLOAT(4, 3.4)
+	CHECK_FLOAT(4, 5.6)
 TEST_END
 TEST_SETUP(array_int, "[1]", 64)
 	CHECK_SIMPLE(JSON_ARRAY, 1, 2)
-	CHECK_NUMBER(1, 1)
+	CHECK_FLOAT(1, 1)
 TEST_END
 TEST_SETUP(array_ints, "[1,2,3]", 64)
 	CHECK_SIMPLE(JSON_ARRAY, 1, 4)
-	CHECK_NUMBER(2, 1)
-	CHECK_NUMBER(2, 2)
-	CHECK_NUMBER(2, 3)
+	CHECK_FLOAT(2, 1)
+	CHECK_FLOAT(2, 2)
+	CHECK_FLOAT(2, 3)
 TEST_END
 TEST_SETUP(array_matrix, "[[1,2,3],[4,5,6],[7,8,9]]", 64)
 	CHECK_SIMPLE(JSON_ARRAY, 1, 13)
 	CHECK_SIMPLE(JSON_ARRAY, 1, 4)
-	CHECK_NUMBER(2, 1)
-	CHECK_NUMBER(2, 2)
-	CHECK_NUMBER(3, 3)
+	CHECK_FLOAT(2, 1)
+	CHECK_FLOAT(2, 2)
+	CHECK_FLOAT(3, 3)
 	CHECK_SIMPLE(JSON_ARRAY, 1, 4)
-	CHECK_NUMBER(2, 4)
-	CHECK_NUMBER(2, 5)
-	CHECK_NUMBER(3, 6)
+	CHECK_FLOAT(2, 4)
+	CHECK_FLOAT(2, 5)
+	CHECK_FLOAT(3, 6)
 	CHECK_SIMPLE(JSON_ARRAY, 1, 4)
-	CHECK_NUMBER(2, 7)
-	CHECK_NUMBER(2, 8)
-	CHECK_NUMBER(3, 9)
+	CHECK_FLOAT(2, 7)
+	CHECK_FLOAT(2, 8)
+	CHECK_FLOAT(3, 9)
 TEST_END
 TEST_SETUP(array_null, "[null]", 64)
 	CHECK_SIMPLE(JSON_ARRAY, 1, 2)
@@ -141,7 +157,7 @@ TEST_SETUP(array_object, "[{\"a\":1}]", 64)
 	CHECK_SIMPLE(JSON_ARRAY, 1, 4)
 	CHECK_SIMPLE(JSON_OBJECT, 2, 3)
 	CHECK_STRING(3, 2, "a")
-	CHECK_NUMBER(1, 1)
+	CHECK_FLOAT(1, 1)
 TEST_END
 TEST_SETUP(array_object_empty, "[{}]", 64)
 	CHECK_SIMPLE(JSON_ARRAY, 1, 2)
@@ -151,13 +167,13 @@ TEST_SETUP(array_objects, "[{\"a\":1},{\"b\":2},{\"c\":3}]", 64)
 	CHECK_SIMPLE(JSON_ARRAY, 1, 10)
 	CHECK_SIMPLE(JSON_OBJECT, 2, 3)
 	CHECK_STRING(3, 2, "a")
-	CHECK_NUMBER(3, 1)
+	CHECK_FLOAT(3, 1)
 	CHECK_SIMPLE(JSON_OBJECT, 2, 3)
 	CHECK_STRING(3, 2, "b")
-	CHECK_NUMBER(3, 2)
+	CHECK_FLOAT(3, 2)
 	CHECK_SIMPLE(JSON_OBJECT, 2, 3)
 	CHECK_STRING(3, 2, "c")
-	CHECK_NUMBER(3, 3)
+	CHECK_FLOAT(3, 3)
 TEST_END
 TEST_SETUP(array_string, "[\"abc\"]", 64)
 	CHECK_SIMPLE(JSON_ARRAY, 2, 2)
@@ -177,18 +193,54 @@ TEST_SETUP(array_tensor, "[[[1,2],[3,4]],[[5,6],[7,8]]]", 64)
 	CHECK_SIMPLE(JSON_ARRAY, 1, 15)
 	CHECK_SIMPLE(JSON_ARRAY, 1, 7)
 	CHECK_SIMPLE(JSON_ARRAY, 1, 3)
-	CHECK_NUMBER(2, 1)
-	CHECK_NUMBER(3, 2)
+	CHECK_FLOAT(2, 1)
+	CHECK_FLOAT(3, 2)
 	CHECK_SIMPLE(JSON_ARRAY, 1, 3)
-	CHECK_NUMBER(2, 3)
-	CHECK_NUMBER(4, 4)
+	CHECK_FLOAT(2, 3)
+	CHECK_FLOAT(4, 4)
 	CHECK_SIMPLE(JSON_ARRAY, 1, 7)
 	CHECK_SIMPLE(JSON_ARRAY, 1, 3)
-	CHECK_NUMBER(2, 5)
-	CHECK_NUMBER(3, 6)
+	CHECK_FLOAT(2, 5)
+	CHECK_FLOAT(3, 6)
 	CHECK_SIMPLE(JSON_ARRAY, 1, 3)
-	CHECK_NUMBER(2, 7)
-	CHECK_NUMBER(2, 8)
+	CHECK_FLOAT(2, 7)
+	CHECK_FLOAT(2, 8)
+TEST_END
+TEST_SETUP(bool_false, "false", 64)
+	CHECK_SIMPLE(JSON_FALSE, 2, 1)
+TEST_END
+TEST_SETUP(bool_true, "true", 64)
+	CHECK_SIMPLE(JSON_TRUE, 2, 1)
+TEST_END
+TEST_SETUP(float_neg1, "-1.0", 64)
+	CHECK_FLOAT(0, -1.0)
+TEST_END
+TEST_SETUP(float_0, "0.0", 64)
+	CHECK_FLOAT(0, 0.0)
+TEST_END
+TEST_SETUP(float_1, "1.0", 64)
+	CHECK_FLOAT(0, 1.0)
+TEST_END
+TEST_SETUP(float_max, "1.7976931348623157e+308", 64)
+	CHECK_FLOAT(0, 1.7976931348623157e+308)
+TEST_END
+TEST_SETUP(float_min, "-1.7976931348623157e+308", 64)
+	CHECK_FLOAT(0, -1.7976931348623157e+308)
+TEST_END
+TEST_SETUP(int_neg1, "-1", 64)
+	CHECK_INT(0, -1)
+TEST_END
+TEST_SETUP(int_0, "0", 64)
+	CHECK_INT(0, 0)
+TEST_END
+TEST_SETUP(int_1, "1", 64)
+	CHECK_INT(0, 1)
+TEST_END
+TEST_SETUP(int_max, "9223372036854775807", 64)
+	CHECK_INT(0, 9223372036854775807ull)
+TEST_END
+TEST_SETUP(int_min, "-9223372036854775808", 64)
+	CHECK_INT(0, -9223372036854775808ull)
 TEST_END
 
 static const test_t tests[] = {
@@ -214,6 +266,18 @@ static const test_t tests[] = {
 	TEST_ADD(test_array_strings)
 	TEST_ADD(test_array_tensor)
 	TEST_PAD
+	TEST_ADD(test_bool_false)
+	TEST_ADD(test_bool_true)
+	TEST_ADD(test_float_neg1)
+	TEST_ADD(test_float_0)
+	TEST_ADD(test_float_1)
+	TEST_ADD(test_float_max)
+	TEST_ADD(test_float_min)
+	TEST_ADD(test_int_neg1)
+	TEST_ADD(test_int_0)
+	TEST_ADD(test_int_1)
+	TEST_ADD(test_int_max)
+	TEST_ADD(test_int_min)
 };
 
 int main(int argc, char **argv) {

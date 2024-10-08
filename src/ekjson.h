@@ -2,6 +2,7 @@
 #define _ekjson_h_
 
 #include <stdbool.h>
+#include <stdint.h>
 
 // Define these macros to use different versions of the json parser
 //
@@ -28,9 +29,6 @@
 #define JSON_NUMBER 4			// JSON Number
 #define JSON_TRUE 5			// JSON Bool (true)
 #define JSON_FALSE 6			// JSON Bool (false)
-
-// jsontok arrays are special in that they always start out with null to
-// denote how much whitespace is present at the start of the document
 #define JSON_NULL 7			// JSON Null
 
 // Main building block of a JSON document
@@ -62,9 +60,14 @@ bool json_str(const char *jstr, char *buf, unsigned buflen);
 // Returns 0 if the string is malformed
 unsigned json_len(const char *jstr);
 // Returns the json value parsed. Returns NAN if there was an error
-double json_num(const char *jnum);
+double json_flt(const char *jnum);
+int64_t json_int(const char *jnum);
+uint64_t json_uint(const char *jnum);
+
 // Returns whether or not a json value is valid
-bool json_validate_value(const char *jval, int type);
+// If called on an array or object, it does not recurssivly check and only
+// returns true (for now?)
+bool json_validate_value(const char *src, const struct jsontok tok, int type);
 // Returns NULL if the string is a valid utf-8 string
 // If it is not, it will return the first invalid character
 const char *json_validate_utf8(const char *str);

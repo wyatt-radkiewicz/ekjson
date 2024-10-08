@@ -1,6 +1,6 @@
 #include <math.h>
 #include <stddef.h>
-#include <stdint.h>
+#include <string.h>
 
 #include "ekjson.h"
 
@@ -34,7 +34,7 @@ static double _pow10(int n) {
 			1.0e12, 1.0e13, 1.0e14, 1.0e15,
 		};
 
-		for (; n >= 16; n -= 16) x *= ex[15];
+		for (; n >= 15; n -= 15) x *= ex[15];
 		x *= ex[n];
 	} else if (n < 0) {
 		const static double ex[] = {
@@ -44,7 +44,7 @@ static double _pow10(int n) {
 			1.0e-12, 1.0e-13, 1.0e-14, 1.0e-15,
 		};
 
-		for (; n <= -16; n += 16) x *= ex[15];
+		for (; n <= -15; n += 15) x *= ex[15];
 		x *= ex[-n];
 	}
 
@@ -151,13 +151,16 @@ static unsigned string(struct state *state, struct jsontok *str) {
 	while (true) {
 		for (; *state->src != '"' && *state->src != '\\'
 			&& *state->src != '\0'; ++state->src);
-		if (*state->src == '"') {
+		switch (*state->src) {
+		case '"':
 			state->src++;
 			return str->len;
+		case '\\':
+			state->src++;
+			break;
+		case '\0':
+			return 0;
 		}
-
-		const struct escape e = escape(&state->src);
-		if (e.len == 0) return 0;
 	}
 }
 
@@ -201,7 +204,7 @@ static unsigned value(struct state *state) {
 
 	switch (*state->src++) {
 	case '0': case '1': case '2': case '3': case '4':
-	case '5': case '6': case '7': case '8': case '9':
+	case '5': case '6': case '7': case '8': case '9': case '-':
 		tok->type = JSON_NUMBER; break;
 	case 't': tok->type = JSON_TRUE; break;
 	case 'f': tok->type = JSON_FALSE; break;
@@ -269,23 +272,26 @@ bool json_str(const char *jstr, char *buf, unsigned buflen) {
 	}
 }
 
-unsigned json_len(const char *jstr) {
+unsigned _json_len(const char **jstr) {
 	for (unsigned len = 0;;) {
-		for (; *jstr != '"' && *jstr != '\\'; jstr++, len++);
-		if (*jstr == '"') return len + 1;
-		const struct escape e = escape(&jstr);
+		for (; **jstr != '"' && **jstr != '\\'; ++*jstr, ++len);
+		if (**jstr == '"') return len + 1;
+		const struct escape e = escape(jstr);
 		if (!(len += e.len)) return 0;
 	}
 }
+unsigned json_len(const char *jstr) {
+	return _json_len(&jstr);
+}
 
 // Default implementation (slow, but works)
-double json_num(const char *jnum) {
-	double sign = *jnum == '-' ? -1.0 : 1.0;
+static double _json_num(const char **const jnum) {
+	double sign = **jnum == '-' ? -1.0 : 1.0;
 
-	jnum += *jnum == '-';
-	if (*jnum == '0') {
-		switch (*++jnum) {
-		case '.': goto fractional;
+	*jnum += **jnum == '-';
+	if (**jnum == '0') {
+		switch (*++*jnum) {
+		case '.': ++*jnum; goto fractional;
 		case '0': case '1': case '2': case '3': case '4':
 		case '5': case '6': case '7': case '8': case '9': return NAN;
 		default: return 0.0;
@@ -293,37 +299,95 @@ double json_num(const char *jnum) {
 	}
 
 	double n = 0.0;
-	while (*jnum >= '0' && *jnum <= '9') {
+	while (**jnum >= '0' && **jnum <= '9') {
 		n *= 10.0;
-		n += (double)(*jnum++ - '0');
+		n += (double)(*(*jnum)++ - '0');
 	}
 
-	if (*jnum++ != '.') return n * sign;
+	if (**jnum != '.') return n * sign;
+	++*jnum;
 
 fractional:
-	for (double p = 0.1; *jnum >= '0' && *jnum <= '9'; p *= 0.1) {
-		n += (double)(*jnum++ - '0') * p;
+	if (**jnum < '0' || **jnum > '9') return NAN;
+	for (double p = 0.1; **jnum >= '0' && **jnum <= '9'; p *= 0.1) {
+		n += (double)(*(*jnum)++ - '0') * p;
 	}
 
-	if (*jnum != 'E' && *jnum != 'e') return n * sign;
+	if (**jnum != 'E' && **jnum != 'e') return n * sign;
 
 	int esign;
 exponent:
-	esign = *jnum == '-' ? -1 : 1;
-	jnum += *jnum == '-' || *jnum == '+';
+	++*jnum;
+	esign = **jnum == '-' ? -1 : 1;
+	*jnum += **jnum == '-' || **jnum == '+';
 
 	int en = 0.0;
-	while (*jnum >= '0' && *jnum <= '9') {
+	while (**jnum >= '0' && **jnum <= '9') {
 		en *= 10.0;
-		en += *jnum++ - '0';
+		en += *(*jnum)++ - '0';
 	}
 
 	return n * sign * _pow10(en * esign);
 }
+int64_t json_int(const char *jnum) {
+	int64_t sign = *jnum == '-' ? -1.0 : 1.0;
 
-// Just say shure for now
-bool json_validate_value(const char *jval, int type) {
-	return true;
+	jnum += *jnum == '-';
+
+	uint64_t n = 0;
+	while (*jnum >= '0' && *jnum <= '9') {
+		n *= 10;
+		n += (uint64_t)(*jnum++ - '0');
+	}
+
+	if (n > INT64_MAX) return (int64_t)n;
+	else return (int64_t)n * sign;
+}
+uint64_t json_uint(const char *jnum) {
+	uint64_t n = 0;
+	while (*jnum >= '0' && *jnum <= '9') {
+		n *= 10;
+		n += (uint64_t)(*jnum++ - '0');
+	}
+
+	return (uint64_t)n;
+}
+double json_flt(const char *jnum) {
+	return _json_num(&jnum);
+}
+
+bool json_validate_value(const char *src, const struct jsontok tok, int type) {
+	src += tok.start;
+	switch (tok.type) {
+	case JSON_OBJECT:
+	case JSON_ARRAY: return true;
+	case JSON_LITERAL_STRING:
+	case JSON_STRING:
+		_json_len(&src);
+		src++;
+	case JSON_NUMBER:
+		if (isnan(_json_num(&src))) return false;
+		break;
+	case JSON_TRUE:
+		if (memcmp(src, "true", 4) != 0) return false;
+		src += 4;
+		break;
+	case JSON_FALSE:
+		if (memcmp(src, "false", 5) != 0) return false;
+		src += 5;
+		break;
+	case JSON_NULL:
+		if (memcmp(src, "null", 4) != 0) return false;
+		src += 4;
+		break;
+	default: return false;
+	}
+
+	whitespace(&src);
+	switch (*src) {
+	case '\0': case '}': case ':': case ']': case ',': return true;
+	default: return false;
+	}
 }
 
 // Just says everythings valid (for now)
