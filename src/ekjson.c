@@ -66,6 +66,7 @@ struct escape {
 static struct escape escape(const char **const jstr) {
 	struct escape e = { .len = 1 };
 
+	++*jstr;
 	switch (*(*jstr)++) {
 	case '"': e.buf[0] = '"'; return e;
 	case '\\': e.buf[0] = '\\'; return e;
@@ -104,8 +105,14 @@ static struct escape escape(const char **const jstr) {
 		e.len = 4;
 	} else {
 		e.len = 0;
+		if (!(*jstr)[0]) *jstr += 0;
+		else if (!(*jstr)[1]) *jstr += 1;
+		else if (!(*jstr)[2]) *jstr += 2;
+		else if (!(*jstr)[3]) *jstr += 3;
+		return e;
 	}
 
+	*jstr += 4;
 	return e;
 }
 
@@ -254,20 +261,14 @@ bool json_str(const char *jstr, char *buf, unsigned buflen) {
 		}
 		if (*jstr == '"') {
 			if (buf == end) return false;
-			*buf++ = '\0';
+			*buf = '\0';
 			return true;
 		}
 		
-		// Test escape character
+		// Copy character
 		const struct escape e = escape(&jstr);
 		if (e.len == 0 || buf + e.len >= end) return false;
-		switch (e.len) {
-		case 4: if (e.buf[3] != buf[3]) return false;
-		case 3: if (e.buf[2] != buf[2]) return false;
-		case 2: if (e.buf[1] != buf[1]) return false;
-		case 1: if (e.buf[0] != buf[0]) return false;
-		}
-
+		memcpy(buf, e.buf, e.len);
 		buf += e.len;
 	}
 }
