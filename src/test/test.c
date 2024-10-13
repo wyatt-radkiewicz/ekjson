@@ -7,7 +7,8 @@
 	static bool _name(unsigned id) { \
 		struct jsontok toks[_ntoks]; \
 		static const char *const __src = _src; \
-		const char *errloc = json_parse(__src, toks, arrlen(toks)); \
+		const char *errloc = json_parse(__src, toks, \
+					arrlen(toks), NULL); \
 		int __idx = 0, _pos = 0;
 #define PASS_SETUP(_name, _src, _ntoks) \
 	TEST_SETUP(pass_##_name, _src, _ntoks) \
@@ -44,7 +45,7 @@
 			__idx, toks[__idx].len, _len); \
 		return false; \
 	} \
-	if (!json_validate_value(__src, toks[__idx], _type)) { \
+	if (!json_validate_value(__src, toks[__idx])) { \
 		if (!dopass) return true; \
 		fprintf(stderr, "token %d didn't pass validation!\n", __idx); \
 		return false; \
@@ -101,7 +102,7 @@
 
 static bool pass_nothing(unsigned id) {
 	struct jsontok toks[2];
-	const char *errloc = json_parse("", toks, arrlen(toks));
+	const char *errloc = json_parse("", toks, arrlen(toks), NULL);
 	return errloc;
 }
 
@@ -514,4 +515,14 @@ static const test_t tests[] = {
 int main(int argc, char **argv) {
 	return tests_run_foreach(NULL, tests, arrlen(tests), stdout) ? 0 : -1;
 }
+
+//#include "../ekjson.h"
+//
+//int main(int argc, char **argv) {
+//	ejtok_t t[256];
+//	ejresult_t res = ejparse(
+//		"{ \"hello\" : \"L Bozo\", \"a\": 5 }",
+//		t, 256);
+//	return 0;
+//}
 

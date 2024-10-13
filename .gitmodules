@@ -4,3 +4,18 @@
 [submodule "ekutils"]
 	path = ekutils
 	url = https://github.com/wyatt-radkiewicz/ekutils
+[submodule "benchmark/jsmn"]
+	path = benchmark/jsmn
+	url = https://github.com/zserge/jsmn.git
+[submodule "benchmark/jjson"]
+	path = benchmark/jjson
+	url = https://github.com/Jacob-C-Smith/json.git
+[submodule "simdjson"]
+	path = simdjson
+	url = https://github.com/simdjson/simdjson.git
+[submodule "benchmark/simdjson"]
+	path = benchmark/simdjson
+	url = https://github.com/simdjson/simdjson.git
+[submodule "benchmark/json-c"]
+	path = benchmark/json-c
+	url = https://github.com/json-c/json-c.git
