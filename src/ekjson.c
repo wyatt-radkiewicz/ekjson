@@ -451,13 +451,15 @@ static ejtok_t *value(state_t *const state, const int depth) {
 			state->src = whitespace(state->src);
 			ejtok_t *const key = string(state, EJKV);
 			if (!key) return NULL;
-			state->src = whitespace(state->src);
+			if (*state->src != ':') {
+				state->src = whitespace(state->src);
+			}
 			if (*state->src++ != ':') return NULL;
 			const ejtok_t *const val = value(state, depth + 1);
 			if (!val) return NULL;
 			key->len += val->len;
-			tok->len += key->len;
-			if (*state->src == ',') state->src++;
+			tok->len += val->len + 1;
+ 			if (*state->src == ',') state->src++;
 		}
 		state->src++;
 		break;
