@@ -3,7 +3,7 @@
 #include <string.h>
 #include <time.h>
 
-#define ITERS 100
+#define ITERS 1000
 #define NBENCHMARKS 6
 
 typedef int(benchmark_fn)(const char *);
@@ -97,7 +97,8 @@ int main(int argc, char **argv) {
 	fread(str, 1, len, file);
 	fclose(file);
 	
-	clock_t avg_time[NBENCHMARKS], total_time[NBENCHMARKS];
+	double avg_time[NBENCHMARKS];
+	clock_t total_time[NBENCHMARKS];
 
 	double throughput[NBENCHMARKS];
 
@@ -123,19 +124,18 @@ int main(int argc, char **argv) {
 
 		total_time[b] = 0;
 		for (int a = 0; a < ITERS; a++) total_time[b] += times[a];
-		avg_time[b] = total_time[b];
-		avg_time[b] /= 1000;
+		avg_time[b] = (double)total_time[b];
+		avg_time[b] /= (double)ITERS;
 
 		printf("benchmark %s\n", benchmarks[b].name);
 		printf("avg time per parse (ms): %f\n",
-			(double)avg_time[b]
-			/ ((double)CLOCKS_PER_SEC / 1000.0f));
+			avg_time[b] / ((double)CLOCKS_PER_SEC / 1000.0f));
 		printf("time total (%d iters) (ms): %f\n", ITERS,
 			(double)total_time[b]
 			/ ((double)CLOCKS_PER_SEC / 1000.0f));
 		printf("%% of ekjson time (in total): %f%%\n",
 			(double)total_time[b] / (double)total_time[0] * 100.0f);
-		double secs = (double)avg_time[b] / (double)CLOCKS_PER_SEC;
+		double secs = avg_time[b] / (double)CLOCKS_PER_SEC;
 		throughput[b] = ((double)filelen / 1024.0 / 1024.0 / 1024.0)
 			/ secs;
 		printf("Throughput (GB/s): %f\n\n", throughput[b]);
