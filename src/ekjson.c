@@ -7,8 +7,8 @@ typedef struct state {
 	ejtok_t *tbase, *tend, *t;
 } state_t;
 
-static inline uint32_t ldu32_unaligned(const void *buf) {
-	const uint8_t *bytes = buf;
+static inline uint32_t ldu32_unaligned(const void *const buf) {
+	const uint8_t *const bytes = buf;
 	return (uint32_t)bytes[0]
 		| (uint32_t)bytes[1] << 8
 		| (uint32_t)bytes[2] << 16
@@ -21,8 +21,8 @@ static inline uint32_t ldu32_unaligned(const void *buf) {
 #define hasless(x,n) (((x)-~0UL/255*(n))&~(x)&~0UL/255*128)
 #define hasmore(x,n) (((x)+~0UL/255*(127-(n))|(x))&~0UL/255*128)
 
-static inline uint64_t ldu64_unaligned(const void *buf) {
-	const uint8_t *bytes = buf;
+static inline uint64_t ldu64_unaligned(const void *const buf) {
+	const uint8_t *const bytes = buf;
 	return (uint64_t)bytes[0] | (uint64_t)bytes[1] << 8
 		| (uint64_t)bytes[2] << 16 | (uint64_t)bytes[3] << 24
 		| (uint64_t)bytes[4] << 32 | (uint64_t)bytes[5] << 40
@@ -41,7 +41,7 @@ static ejtok_t *addtok(state_t *const state, int type) {
 		.len = 1,
 		.start = state->src - state->base,
 	};
-	ejtok_t *t = state->t;
+	ejtok_t *const t = state->t;
 	state->t += state->t != state->tend;
 	return t;
 }
@@ -58,7 +58,7 @@ static ejtok_t *addtok(state_t *const state, int type) {
 
 static ejtok_t *string(state_t *const state, int type) {
 #if EKJSON_SPACE_EFFICENT
-	static uint8_t groups[256] = {
+	static const uint8_t groups[256] = {
 		['\\'] = 1,
 		['u'] = 2,
 		['0'] = 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
@@ -68,7 +68,7 @@ static ejtok_t *string(state_t *const state, int type) {
 		['\0'] = 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
 		5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
 	};
-	static uint8_t transitions[][8] = {
+	static const uint8_t transitions[][8] = {
 		{ 0, 1, 0, 0, 7, 6 }, // Normal string
 		{ 0, 0, 2, 0, 0, 6 }, // Found escape char '\\'
 		{ 6, 6, 6, 3, 6, 6 }, // utf hex
@@ -77,7 +77,7 @@ static ejtok_t *string(state_t *const state, int type) {
 		{ 6, 6, 6, 0, 6, 6 }, // utf hex
 	};
 #else
-	static uint8_t transitions[][256] = {
+	static const uint8_t transitions[][256] = {
 		// Normal string
 		{
 			['\0'] = 6,
@@ -147,7 +147,7 @@ static ejtok_t *string(state_t *const state, int type) {
 	};
 #endif
 
-	ejtok_t *tok = addtok(state, type);
+	ejtok_t *const tok = addtok(state, type);
 	const char *src = state->src + 1;
 
 #if !EKJSON_NO_BITWISE
@@ -196,11 +196,11 @@ static ejtok_t *string(state_t *const state, int type) {
 
 static ejtok_t *number(state_t *const state) {
 #if EKJSON_SPACE_EFFICENT
-	static uint8_t groups[256] = {
+	static const uint8_t groups[256] = {
 		['-'] = 1, ['0'] = 2, ['1'] = 3, 3, 3, 3, 3, 3, 3, 3, 3,
 		['.'] = 4, ['e'] = 5, ['E'] = 5, ['+'] = 6,
 	};
-	static uint8_t transitions[][8] = {
+	static const uint8_t transitions[][8] = {
 		{  9,  1,  2,  3,  9,  9,  9 }, // Initial checks
 
 		{  9,  9,  2,  3,  9,  9,  9 }, // Negative sign
@@ -215,7 +215,7 @@ static ejtok_t *number(state_t *const state) {
 		{ 10,  9,  8,  8,  9,  9,  9 }, // Exponent (rest of digits)
 	};
 #else
-	static uint8_t transitions[][256] = {
+	static const uint8_t transitions[][256] = {
 		// Initial checks
 		{
 			0x9, 0x9, 0x9, 0x9, 0x9, 0x9, 0x9, 0x9,
@@ -399,7 +399,7 @@ static ejtok_t *number(state_t *const state) {
 	};
 #endif
 
-	ejtok_t *tok = addtok(state, EJNUM);
+	ejtok_t *const tok = addtok(state, EJNUM);
 	const char *src = state->src;
 
 	int s = 0;
@@ -416,7 +416,7 @@ static ejtok_t *number(state_t *const state) {
 }
 
 static ejtok_t *boolean(state_t *const state) {
-	ejtok_t *tok = addtok(state, EJBOOL);
+	ejtok_t *const tok = addtok(state, EJBOOL);
 	const bool bfalse =
 		(state->src[4] == 'e')
 		& (ldu32_unaligned(state->src) == STR2U32('f', 'a', 'l', 's'));
@@ -429,7 +429,7 @@ static ejtok_t *boolean(state_t *const state) {
 }
 
 static ejtok_t *null(state_t *const state) {
-	ejtok_t *tok = addtok(state, EJNULL);
+	ejtok_t *const tok = addtok(state, EJNULL);
 	const bool bvalid =
 		ldu32_unaligned(state->src) == STR2U32('n', 'u', 'l', 'l');
 	const uint64_t valid = bvalid * (uint64_t)(-1);
@@ -449,11 +449,11 @@ static ejtok_t *value(state_t *const state, const int depth) {
 
 		while (*state->src != '}') {
 			state->src = whitespace(state->src);
-			ejtok_t *key = string(state, EJKV);
+			ejtok_t *const key = string(state, EJKV);
 			if (!key) return NULL;
 			state->src = whitespace(state->src);
 			if (*state->src++ != ':') return NULL;
-			ejtok_t *val = value(state, depth + 1);
+			const ejtok_t *const val = value(state, depth + 1);
 			if (!val) return NULL;
 			key->len += val->len;
 			tok->len += key->len;
@@ -466,7 +466,7 @@ static ejtok_t *value(state_t *const state, const int depth) {
 		state->src++;
 
 		while (*state->src != ']') {
-			ejtok_t *val = value(state, depth + 1);
+			const ejtok_t *const val = value(state, depth + 1);
 			if (!val) return NULL;
 			tok->len += val->len;
 			if (*state->src == ',') state->src++;
