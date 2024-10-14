@@ -453,8 +453,10 @@ static ejtok_t *value(state_t *const state, const int depth) {
 			if (!key) return NULL;
 			if (*state->src != ':') {
 				state->src = whitespace(state->src);
+				if (*state->src++ != ':') return NULL;
+			} else {
+				state->src++;
 			}
-			if (*state->src++ != ':') return NULL;
 			const ejtok_t *const val = value(state, depth + 1);
 			if (!val) return NULL;
 			key->len += val->len;
