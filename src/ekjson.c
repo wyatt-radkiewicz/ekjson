@@ -491,6 +491,7 @@ ejresult_t ejparse(const char *src, ejtok_t *t, size_t nt) {
 	};
 	
 	const bool passed = value(&state, 0);
+	if (!passed && state.src[-1] == '\0') state.src--;
 	return passed && state.t != state.tend
 		&& *state.src == '\0' ? (ejresult_t){
 		.err = false,
