@@ -3,7 +3,7 @@
 #include <string.h>
 #include <time.h>
 
-#define ITERS 1000
+#define ITERS 100
 #define NBENCHMARKS 6
 
 typedef int(benchmark_fn)(const char *);
@@ -134,7 +134,7 @@ int main(int argc, char **argv) {
 			(double)total_time[b]
 			/ ((double)CLOCKS_PER_SEC / 1000.0f));
 		printf("%% of ekjson time (in total): %f%%\n",
-			(double)total_time[b] / (double)total_time[0] * 100.0f);
+			(double)total_time[b] / (double)total_time[1] * 100.0f);
 		double secs = avg_time[b] / (double)CLOCKS_PER_SEC;
 		throughput[b] = ((double)filelen / 1024.0 / 1024.0 / 1024.0)
 			/ secs;
@@ -145,7 +145,7 @@ int main(int argc, char **argv) {
 
 	printf("%d\n", x);
 	for (int i = 0; i < NBENCHMARKS; i++) {
-		printf("%.2f, ", throughput[i]);
+		printf("%.3f, ", throughput[i]);
 	}
 	printf("\n");
 

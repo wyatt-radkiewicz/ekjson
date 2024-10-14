@@ -15,19 +15,21 @@ static inline uint32_t ldu32_unaligned(const void *buf) {
 		| (uint32_t)bytes[3] << 24;
 }
 
-static void whitespace(state_t *const state) {
-	for (; *state->src == ' ' || *state->src == '\t'
-		|| *state->src == '\r' || *state->src == '\n'; state->src++);
+static const char *whitespace(const char *src) {
+	for (; *src == ' ' || *src == '\t'
+		|| *src == '\r' || *src == '\n'; src++);
+	return src;
 }
 
 static ejtok_t *addtok(state_t *const state, int type) {
-	if (state->t == state->tend) return NULL;
 	*state->t = (ejtok_t){
 		.type = type,
 		.len = 1,
 		.start = state->src - state->base,
 	};
-	return state->t++;
+	ejtok_t *t = state->t;
+	state->t += state->t != state->tend;
+	return t;
 }
 
 #define FILLCODESPACE(I) \
@@ -123,8 +125,6 @@ static ejtok_t *string(state_t *const state, int type) {
 #endif
 
 	ejtok_t *tok = addtok(state, type);
-	if (!tok) return NULL;
-
 	const char *src = state->src + 1;
 	int s = 0;
 
@@ -387,17 +387,17 @@ static ejtok_t *null(state_t *const state) {
 static ejtok_t *value(state_t *const state, const int depth) {
 	ejtok_t *tok = NULL;
 
-	whitespace(state);
+	state->src = whitespace(state->src);
 	switch (*state->src) {
 	case '{':
-		if (!(tok = addtok(state, EJOBJ))) return NULL;
+		tok = addtok(state, EJOBJ);
 		state->src++;
 
 		while (*state->src != '}') {
-			whitespace(state);
+			state->src = whitespace(state->src);
 			ejtok_t *key = string(state, EJKV);
 			if (!key) return NULL;
-			whitespace(state);
+			state->src = whitespace(state->src);
 			if (*state->src++ != ':') return NULL;
 			ejtok_t *val = value(state, depth + 1);
 			if (!val) return NULL;
@@ -408,7 +408,7 @@ static ejtok_t *value(state_t *const state, const int depth) {
 		state->src++;
 		break;
 	case '[':
-		if (!(tok = addtok(state, EJARR))) return NULL;
+		tok = addtok(state, EJARR);
 		state->src++;
 
 		while (*state->src != ']') {
@@ -436,9 +436,11 @@ static ejtok_t *value(state_t *const state, const int depth) {
 		if (depth) return NULL;
 		else return (void *)1;
 		break;
+	default:
+		return NULL;
 	}
 
-	whitespace(state);
+	state->src = whitespace(state->src);
 	return tok;
 }
 
@@ -448,7 +450,9 @@ ejresult_t ejparse(const char *src, ejtok_t *t, size_t nt) {
 		.tbase = t, .tend = t + nt, .t = t,
 	};
 	
-	return value(&state, 0) && *state.src == '\0' ? (ejresult_t){
+	const bool passed = value(&state, 0);
+	return passed && state.t != state.tend
+		&& *state.src == '\0' ? (ejresult_t){
 		.err = false,
 		.loc = NULL,
 		.ntoks = 0,
