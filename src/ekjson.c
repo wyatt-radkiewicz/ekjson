@@ -152,7 +152,7 @@ static ejtok_t *string(state_t *const state, int type) {
 
 #if !EKJSON_NO_BITWISE
 	uint64_t probe = ldu64_unaligned(src);
-	while (!(hasless(probe, 0x1f)
+	while (!(hasless(probe, 0x20)
 		|| hasvalue(probe, '"')
 		|| hasvalue(probe, '\\'))) {
 		src += 8;
