@@ -12,14 +12,14 @@ CXXOBJS	:=$(patsubst %.cpp,$(BUILD)/%.o,$(CXXSRCS))
 
 # Environment variables
 FLAGS	:=-O2 -Isimdjson/singleheader -Ijjson/extern/array/include -Ijjson/extern/hash-cache/include -Ijjson/extern/dict/include -Ijjson/extern/log/include -Ijjson/extern/sync/include -Ijjson/include -Irapidjson/include/
-LDFLAGS	:=$(LDFLAGS) -lm -Ljjson/lib/ -larray -ldict -ljson -lhash_cache -llog -lsync -lc++ -Ljson-c/ -ljson-c
+LDFLAGS	:=$(LDFLAGS) -lm -Ljjson/lib/ -larray -ldict -ljson -lhash_cache -llog -lsync -Ljson-c/ -ljson-c
 
 CFLAGS	:=$(CFLAGS) $(FLAGS) -std=gnu99
 CXXFLAGS:=$(CXXFLAGS) $(FLAGS) -std=c++11
 
 # Build the main executable
 $(OUT): $(OBJS) $(CXXOBJS)
-	$(CC) $(LDFLAGS) $^ -o $@
+	$(CXX) $(LDFLAGS) $^ -o $@
 	@if [[ $$(uname) == "Darwin" ]]; then\
 		install_name_tool -add_rpath $$PWD/jjson/lib $(OUT);\
 		install_name_tool -add_rpath $$PWD/json-c $(OUT);\

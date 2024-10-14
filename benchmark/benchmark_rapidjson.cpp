@@ -1,4 +1,8 @@
+#ifdef __APPLE__
 #define RAPIDJSON_NEON
+#else
+#define RAPIDJSON_SSE2
+#endif
 
 #include "rapidjson/document.h"
 

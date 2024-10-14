@@ -138,6 +138,7 @@ static ejtok_t *string(state_t *const state, int type) {
 	ejtok_t *tok = addtok(state, type);
 	const char *src = state->src + 1;
 
+#if !EKJSON_NO_BITWISE
 	uint64_t probe;
 	while (true) {
 		probe = ldu64_unaligned(src);
@@ -151,7 +152,11 @@ static ejtok_t *string(state_t *const state, int type) {
 		int i = 0, s = 0;
 
 		do {
+#if EKJSON_SPACE_EFFICENT
+			s = transitions[s][groups[(uint8_t)(*src++)]];
+#else
 			s = transitions[s][(uint8_t)(*src++)];
+#endif
 			if (i++ >= 8 && !s) break;
 		} while (s && s < 6);
 
@@ -160,19 +165,20 @@ static ejtok_t *string(state_t *const state, int type) {
 			return s == 7 ? tok : NULL;
 		}
 	}
+#else
+	int s = 0;
 
-//	int s = 0;
-//
-//	while (s < 6) {
-//#if EKJSON_SPACE_EFFICENT
-//		s = transitions[s][groups[(uint8_t)(*src++)]];
-//#else
-//		s = transitions[s][(uint8_t)(*src++)];
-//#endif
-//	}
-//
-//	state->src = src;
-//	return s == 7 ? tok : NULL;
+	while (s < 6) {
+#if EKJSON_SPACE_EFFICENT
+		s = transitions[s][groups[(uint8_t)(*src++)]];
+#else
+		s = transitions[s][(uint8_t)(*src++)];
+#endif
+	}
+
+	state->src = src;
+	return s == 7 ? tok : NULL;
+#endif
 }
 
 static ejtok_t *number(state_t *const state) {

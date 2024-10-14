@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 //#define EKJSON_SPACE_EFFICIENT 1
+//#define EKJSON_NO_BITWISE 1
 
 // A ekjson document is a collection of tokens representing the document
 // These tokens are only valid if you run ej* functions on them to ensure
