@@ -19,7 +19,6 @@ static inline uint32_t ldu32_unaligned(const void *const buf) {
 #define haszero(v) (((v) - 0x0101010101010101ull) & ~(v) & 0x8080808080808080ull)
 #define hasvalue(x,n) (haszero((x) ^ (~0ull/255 * (n))))
 #define hasless(x,n) (((x)-~0UL/255*(n))&~(x)&~0UL/255*128)
-#define hasmore(x,n) (((x)+~0UL/255*(127-(n))|(x))&~0UL/255*128)
 
 static inline uint64_t ldu64_unaligned(const void *const buf) {
 	const uint8_t *const bytes = buf;

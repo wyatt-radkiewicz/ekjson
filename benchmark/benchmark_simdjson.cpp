@@ -17,13 +17,8 @@ int benchmark_simdjson(const char *src) {
 		n = 0;
 	}
 
-	simdjson::ondemand::parser parser;
-	simdjson::ondemand::document doc = parser.iterate(gs);
-	simdjson::ondemand::array arr = doc.get_array();
-	for (auto i : arr) {
-		simdjson::ondemand::object obj = i.get_object();
-		n += obj.count_fields();
-	}
+	simdjson::dom::parser parser;
+	auto doc = parser.parse(gs);
 	return 0;
 }
 
