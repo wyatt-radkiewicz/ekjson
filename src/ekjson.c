@@ -445,10 +445,9 @@ static ejtok_t *value(state_t *const state, const int depth) {
 	switch (*state->src) {
 	case '{':
 		tok = addtok(state, EJOBJ);
-		state->src++;
+		state->src = whitespace(state->src + 1);
 
 		while (*state->src != '}') {
-			state->src = whitespace(state->src);
 			ejtok_t *const key = string(state, EJKV);
 			if (!key) return NULL;
 			if (*state->src != ':') {
@@ -461,13 +460,15 @@ static ejtok_t *value(state_t *const state, const int depth) {
 			if (!val) return NULL;
 			key->len += val->len;
 			tok->len += val->len + 1;
- 			if (*state->src == ',') state->src++;
+ 			if (*state->src == ',') {
+				state->src = whitespace(state->src + 1);
+			}
 		}
 		state->src++;
 		break;
 	case '[':
 		tok = addtok(state, EJARR);
-		state->src++;
+		state->src = whitespace(state->src + 1);
 
 		while (*state->src != ']') {
 			const ejtok_t *const val = value(state, depth + 1);
