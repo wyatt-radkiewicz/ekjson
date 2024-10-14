@@ -15,8 +15,11 @@ static inline uint32_t ldu32_unaligned(const void *buf) {
 		| (uint32_t)bytes[3] << 24;
 }
 
+// Bit twiddling hacks - https://graphics.stanford.edu/~seander/bithacks.html
 #define haszero(v) (((v) - 0x0101010101010101ull) & ~(v) & 0x8080808080808080ull)
 #define hasvalue(x,n) (haszero((x) ^ (~0ull/255 * (n))))
+#define hasless(x,n) (((x)-~0UL/255*(n))&~(x)&~0UL/255*128)
+#define hasmore(x,n) (((x)+~0UL/255*(127-(n))|(x))&~0UL/255*128)
 
 static inline uint64_t ldu64_unaligned(const void *buf) {
 	const uint8_t *bytes = buf;
@@ -56,9 +59,14 @@ static ejtok_t *addtok(state_t *const state, int type) {
 static ejtok_t *string(state_t *const state, int type) {
 #if EKJSON_SPACE_EFFICENT
 	static uint8_t groups[256] = {
-		['\\'] = 1, ['u'] = 2, ['0'] = 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
-		['a'] = 3, 3, 3, 3, 3, 3, ['A'] = 3, 3, 3, 3, 3, 3,
-		['"'] = 4, ['\0'] = 5,
+		['\\'] = 1,
+		['u'] = 2,
+		['0'] = 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
+		['a'] = 3, 3, 3, 3, 3, 3,
+		['A'] = 3, 3, 3, 3, 3, 3,
+		['"'] = 4,
+		['\0'] = 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+		5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
 	};
 	static uint8_t transitions[][8] = {
 		{ 0, 1, 0, 0, 7, 6 }, // Normal string
@@ -92,6 +100,7 @@ static ejtok_t *string(state_t *const state, int type) {
 		{
 			6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
 			6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
+			6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
 			3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 6, 6, 6, 6, 6, 6,
 			6, 3, 3, 3, 3, 3, 3, 6, 6, 6, 6, 6, 6, 6, 6, 6,
 			6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
@@ -101,6 +110,7 @@ static ejtok_t *string(state_t *const state, int type) {
 		},
 		// UTF Hex Digit 2
 		{
+			6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
 			6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
 			6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
 			4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 6, 6, 6, 6, 6, 6,
@@ -114,6 +124,7 @@ static ejtok_t *string(state_t *const state, int type) {
 		{
 			6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
 			6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
+			6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
 			5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 6, 6, 6, 6, 6, 6,
 			6, 5, 5, 5, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 6, 6,
 			6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
@@ -121,8 +132,9 @@ static ejtok_t *string(state_t *const state, int type) {
 			6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
 			FILLCODESPACE(6)
 		},
-		// UTF Hex Digit 1
+		// UTF Hex Digit 4
 		{
+			6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
 			6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
 			6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
 			0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6, 6, 6, 6, 6, 6,
@@ -142,7 +154,8 @@ static ejtok_t *string(state_t *const state, int type) {
 	uint64_t probe;
 	while (true) {
 		probe = ldu64_unaligned(src);
-		while (!haszero(probe)
+
+		while (hasmore(probe, 0x1f)
 			&& !hasvalue(probe, '"')
 			&& !hasvalue(probe, '\\')) {
 			src += 8;

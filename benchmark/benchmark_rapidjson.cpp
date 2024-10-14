@@ -15,8 +15,8 @@ void cleanup_rapidjson(void);
 
 int benchmark_rapidjson(const char *src) {
 	Document d;
-	d.Parse(src);
-	return 0;
+	ParseResult res = d.Parse(src);
+	return res.IsError() ? 1 : 0;
 }
 void cleanup_rapidjson(void) {
 

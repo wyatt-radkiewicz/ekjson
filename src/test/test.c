@@ -304,8 +304,8 @@ PASS_END
 PASS_SETUP(string_empty, "\"\"", 64)
 	CHECK_STRING(1, 1, "")
 PASS_END
-PASS_SETUP(string_escape, "\"\\u1234\"", 64)
-	CHECK_STRING(1, 1, "\u1234")
+PASS_SETUP(string_escape, "\"\\u12A4\"", 64)
+	CHECK_STRING(1, 1, "\u12A4")
 PASS_END
 PASS_SETUP(string_formfeed, "\"\\f\"", 64)
 	CHECK_STRING(1, 1, "\f")
@@ -394,7 +394,7 @@ FAIL_END
 FAIL_SETUP(string_missing_end_quote, "\"abc", 64)
 	CHECK_STRING(1, 1, "abc")
 FAIL_END
-FAIL_SETUP(string_escape, "\"\\u12a4\"", 64)
+FAIL_SETUP(string_escape, "\"\\u12i4\"", 64)
 FAIL_END
 
 FAIL_SETUP(null, "nul", 64)

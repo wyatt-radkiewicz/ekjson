@@ -4,7 +4,8 @@ static json_value *v;
 
 int benchmark_jjson(const char *src) {
 	v = NULL;
-	if (!json_value_parse((char *)src, NULL, &v)) return 1;
+	char *p;
+	//if (!json_value_parse((char *)src, &p, &v)) return 1;
 	return 0;
 }
 

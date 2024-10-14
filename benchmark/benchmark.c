@@ -43,11 +43,6 @@ static const struct benchmark {
 		.name = "ekjson"
 	},
 	{
-		.fn = benchmark_jjson,
-		.cleanup = cleanup_jjson,
-		.name = "jjson"
-	},
-	{
 		.fn = benchmark_rapidjson,
 		.cleanup = cleanup_rapidjson,
 		.name = "rapidjson"

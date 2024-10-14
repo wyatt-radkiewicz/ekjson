@@ -5,8 +5,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
-//#define EKJSON_SPACE_EFFICIENT 1
-//#define EKJSON_NO_BITWISE 1
+// Removes big tables in the source code when set to true
+#define EKJSON_SPACE_EFFICENT 0
+
+// When set, turns off 'bitwise' 64bit tricks
+#define EKJSON_NO_BITWISE 0
 
 // A ekjson document is a collection of tokens representing the document
 // These tokens are only valid if you run ej* functions on them to ensure
