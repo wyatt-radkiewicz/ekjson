@@ -15,6 +15,17 @@ static inline uint32_t ldu32_unaligned(const void *buf) {
 		| (uint32_t)bytes[3] << 24;
 }
 
+#define haszero(v) (((v) - 0x0101010101010101ull) & ~(v) & 0x8080808080808080ull)
+#define hasvalue(x,n) (haszero((x) ^ (~0ull/255 * (n))))
+
+static inline uint64_t ldu64_unaligned(const void *buf) {
+	const uint8_t *bytes = buf;
+	return (uint64_t)bytes[0] | (uint64_t)bytes[1] << 8
+		| (uint64_t)bytes[2] << 16 | (uint64_t)bytes[3] << 24
+		| (uint64_t)bytes[4] << 32 | (uint64_t)bytes[5] << 40
+		| (uint64_t)bytes[6] << 48 | (uint64_t)bytes[7] << 56;
+}
+
 static const char *whitespace(const char *src) {
 	for (; *src == ' ' || *src == '\t'
 		|| *src == '\r' || *src == '\n'; src++);
@@ -126,18 +137,42 @@ static ejtok_t *string(state_t *const state, int type) {
 
 	ejtok_t *tok = addtok(state, type);
 	const char *src = state->src + 1;
-	int s = 0;
 
-	while (s < 6) {
-#if EKJSON_SPACE_EFFICENT
-		s = transitions[s][groups[(uint8_t)(*src++)]];
-#else
-		s = transitions[s][(uint8_t)(*src++)];
-#endif
+	uint64_t probe;
+	while (true) {
+		probe = ldu64_unaligned(src);
+		while (!haszero(probe)
+			&& !hasvalue(probe, '"')
+			&& !hasvalue(probe, '\\')) {
+			src += 8;
+			probe = ldu64_unaligned(src);
+		}
+
+		int i = 0, s = 0;
+
+		do {
+			s = transitions[s][(uint8_t)(*src++)];
+			if (i++ >= 8 && !s) break;
+		} while (s && s < 6);
+
+		if (s) {
+			state->src = src;
+			return s == 7 ? tok : NULL;
+		}
 	}
 
-	state->src = src;
-	return s == 7 ? tok : NULL;
+//	int s = 0;
+//
+//	while (s < 6) {
+//#if EKJSON_SPACE_EFFICENT
+//		s = transitions[s][groups[(uint8_t)(*src++)]];
+//#else
+//		s = transitions[s][(uint8_t)(*src++)];
+//#endif
+//	}
+//
+//	state->src = src;
+//	return s == 7 ? tok : NULL;
 }
 
 static ejtok_t *number(state_t *const state) {

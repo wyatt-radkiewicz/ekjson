@@ -394,6 +394,8 @@ FAIL_END
 FAIL_SETUP(string_missing_end_quote, "\"abc", 64)
 	CHECK_STRING(1, 1, "abc")
 FAIL_END
+FAIL_SETUP(string_escape, "\"\\u12a4\"", 64)
+FAIL_END
 
 FAIL_SETUP(null, "nul", 64)
 	CHECK_SIMPLE(EJNULL, 1, 1)
@@ -480,6 +482,7 @@ static const test_t tests[] = {
 	TEST_PAD
 	TEST_ADD(fail_string_missing_begin_quote)
 	TEST_ADD(fail_string_missing_end_quote)
+	TEST_ADD(fail_string_escape)
 	TEST_PAD
 	TEST_ADD(fail_null)
 };

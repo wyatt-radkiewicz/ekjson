@@ -1,4 +1,4 @@
-//#define RAPIDJSON_NEON
+#define RAPIDJSON_NEON
 
 #include "rapidjson/document.h"
 
