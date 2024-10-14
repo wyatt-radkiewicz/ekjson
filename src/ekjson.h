@@ -5,6 +5,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+//#define EKJSON_SPACE_EFFICIENT 1
+
 // A ekjson document is a collection of tokens representing the document
 // These tokens are only valid if you run ej* functions on them to ensure
 // validation. If its a object, key/value, or array token, then it is already
@@ -12,8 +14,8 @@
 enum { EJOBJ, EJKV, EJARR, EJSTR, EJNUM, EJBOOL, EJNULL };
 typedef struct ejtok {
 	uint32_t start;		// Offset from the start of the source string
-	uint32_t type : 2;	// General type of the token (kv is a string)
-	uint32_t len : 30;	// Number of child tokens (including this one)
+	uint32_t type : 3;	// General type of the token (kv is a string)
+	uint32_t len : 29;	// Number of child tokens (including this one)
 } ejtok_t;
 
 // Result of an ekjson parsing routine

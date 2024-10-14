@@ -4,21 +4,39 @@
 #include <time.h>
 
 #define ITERS 100
-#define NBENCHMARKS 5
+#define NBENCHMARKS 6
 
 typedef int(benchmark_fn)(const char *);
 typedef void(cleanup_fn)(void);
 
-benchmark_fn benchmark_ekjson, benchmark_jsmn, benchmark_jjson,
-	benchmark_simdjson, benchmark_jsonc;
-cleanup_fn cleanup_ekjson, cleanup_jsmn, cleanup_jjson,
-	cleanup_simdjson, cleanup_jsonc;
+benchmark_fn benchmark_strlen, benchmark_ekjson, benchmark_jsmn,
+	benchmark_jjson, benchmark_simdjson, benchmark_jsonc,
+	benchmark_rapidjson;
+cleanup_fn cleanup_strlen, cleanup_ekjson, cleanup_jsmn, cleanup_jjson,
+	cleanup_simdjson, cleanup_jsonc, cleanup_rapidjson;
+
+volatile int x;
+
+int benchmark_strlen(const char *s) {
+	int len = 0;
+	while (*s) s++, len++;
+	x += len;
+	return 0;
+}
+void cleanup_strlen(void) {
+
+}
 
 static const struct benchmark {
 	benchmark_fn	*fn;
 	cleanup_fn	*cleanup;
 	const char	*name;
 } benchmarks[] = {
+	{
+		.fn = benchmark_strlen,
+		.cleanup = cleanup_strlen,
+		.name = "strlen"
+	},
 	{
 		.fn = benchmark_ekjson,
 		.cleanup = cleanup_ekjson,
@@ -28,6 +46,11 @@ static const struct benchmark {
 		.fn = benchmark_jjson,
 		.cleanup = cleanup_jjson,
 		.name = "jjson"
+	},
+	{
+		.fn = benchmark_rapidjson,
+		.cleanup = cleanup_rapidjson,
+		.name = "rapidjson"
 	},
 	{
 		.fn = benchmark_simdjson,
@@ -120,6 +143,7 @@ int main(int argc, char **argv) {
 	
 	free(str);
 
+	printf("%d\n", x);
 	for (int i = 0; i < NBENCHMARKS; i++) {
 		printf("%.2f, ", throughput[i]);
 	}

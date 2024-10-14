@@ -4,17 +4,18 @@
 
 # Variables
 SRCS	:=./benchmark.c ./benchmark_ekjson.c ./benchmark_jsmn.c ./benchmark_jjson.c ./benchmark_jsonc.c ./ekjson/src/ekjson.c
-CXXSRCS	:=./benchmark_simdjson.cpp ./simdjson/singleheader/simdjson.cpp
+CXXSRCS	:=./benchmark_simdjson.cpp ./simdjson/singleheader/simdjson.cpp ./benchmark_rapidjson.cpp
 BUILD	:=build
 OUT	:=$(BUILD)/benchmark
 OBJS	:=$(patsubst %.c,$(BUILD)/%.o,$(SRCS))
 CXXOBJS	:=$(patsubst %.cpp,$(BUILD)/%.o,$(CXXSRCS))
 
 # Environment variables
-FLAGS	:=-O2 -Isimdjson/singleheader -Ijjson/extern/array/include -Ijjson/extern/hash-cache/include -Ijjson/extern/dict/include -Ijjson/extern/log/include -Ijjson/extern/sync/include -Ijjson/include
+FLAGS	:=-O2 -Isimdjson/singleheader -Ijjson/extern/array/include -Ijjson/extern/hash-cache/include -Ijjson/extern/dict/include -Ijjson/extern/log/include -Ijjson/extern/sync/include -Ijjson/include -Irapidjson/include/
+LDFLAGS	:=$(LDFLAGS) -lm -Ljjson/lib/ -larray -ldict -ljson -lhash_cache -llog -lsync -lc++ -Ljson-c/ -ljson-c
+
 CFLAGS	:=$(CFLAGS) $(FLAGS) -std=gnu99
 CXXFLAGS:=$(CXXFLAGS) $(FLAGS) -std=c++11
-LDFLAGS	:=$(LDFLAGS) -lm -Ljjson/lib/ -larray -ldict -ljson -lhash_cache -llog -lsync -lc++ -Ljson-c/ -ljson-c
 
 # Build the main executable
 $(OUT): $(OBJS) $(CXXOBJS)

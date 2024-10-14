@@ -19,3 +19,6 @@
 [submodule "benchmark/json-c"]
 	path = benchmark/json-c
 	url = https://github.com/json-c/json-c.git
+[submodule "benchmark/rapidjson"]
+	path = benchmark/rapidjson
+	url = https://github.com/Tencent/rapidjson.git
