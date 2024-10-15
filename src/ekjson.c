@@ -542,6 +542,9 @@ static ejtok_t *value(state_t *const state, const int depth) {
 			// Get the key eg. "a"
 			ejtok_t *const key = string(state, EJKV);
 
+			// If the key had errors, exit now
+			if (!key) return NULL;
+
 			// Do an early check for : since most documents
 			// have the : right after the key with no whitespace
 			// (this is a situational optimization but doesn't
@@ -559,8 +562,8 @@ static ejtok_t *value(state_t *const state, const int depth) {
 			// since values already do that initially
 			const ejtok_t *const val = value(state, depth + 1);
 
-			// If the key and value had errors, exit now
-			if (!(key && val)) return NULL;
+			// If the value had errors, exit now
+			if (!val) return NULL;
 
 			// Update the key and object length
 			key->len += val->len;

@@ -16,14 +16,14 @@
 	if (res.err) goto err;
 #define FAIL_SETUP(_name, _src, _ntoks) \
 	TEST_SETUP(fail_##_name, _src, _ntoks) \
-	const bool dopass = false; \
-	if (res.err) return true;
+	const bool dopass = false;
 #define PASS_END \
 		return true; \
 	err: \
 		return false; \
 	}
 #define FAIL_END \
+		if (res.err) return true; \
 		return false; \
 	}
 #define CHECK_BASE(_type, _size, _len) \
@@ -398,40 +398,58 @@ FAIL_SETUP(string_escape, "\"\\u12i4\"", 64)
 FAIL_END
 
 FAIL_SETUP(object_key_missing_quote1, "{\"a", 64)
+	if (!res.loc || res.loc[0] != '\0') return TEST_BAD;
 FAIL_END
 FAIL_SETUP(object_key_missing_quote2, "{\"abc", 64)
+	if (!res.loc || res.loc[0] != '\0') return TEST_BAD;
 FAIL_END
 FAIL_SETUP(object_key_missing_quote3, "{\"abcdefgh", 64)
+	if (!res.loc || res.loc[0] != '\0') return TEST_BAD;
 FAIL_END
 FAIL_SETUP(object_string_missing_quote1, "{\"a\":\"a", 64)
+	if (!res.loc || res.loc[0] != '\0') return TEST_BAD;
 FAIL_END
 FAIL_SETUP(object_string_missing_quote2, "{\"a\":\"abc", 64)
+	if (!res.loc || res.loc[0] != '\0') return TEST_BAD;
 FAIL_END
 FAIL_SETUP(object_string_missing_quote3, "{\"a\":\"abcdefgh", 64)
+	if (!res.loc || res.loc[0] != '\0') return TEST_BAD;
 FAIL_END
 FAIL_SETUP(object_string_missing_quote4, "{\"a\":\"abcdef\\", 64)
+	if (!res.loc || res.loc[0] != '\0') return TEST_BAD;
 FAIL_END
 FAIL_SETUP(object_string_missing_quote5, "{\"a\":\"abcdef\\u34", 64)
+	if (!res.loc || res.loc[0] != '\0') return TEST_BAD;
 FAIL_END
 FAIL_SETUP(object_number_eof1, "{\"a\":435.", 64)
+	if (!res.loc || res.loc[0] != '\0') return TEST_BAD;
 FAIL_END
 FAIL_SETUP(object_number_eof2, "{\"a\":435e", 64)
+	if (!res.loc || res.loc[0] != '\0') return TEST_BAD;
 FAIL_END
 FAIL_SETUP(object_number_eof3, "{\"a\":435e+", 64)
+	if (!res.loc || res.loc[0] != '\0') return TEST_BAD;
 FAIL_END
 FAIL_SETUP(object_number_eof4, "{\"a\":-", 64)
+	if (!res.loc || res.loc[0] != '\0') return TEST_BAD;
 FAIL_END
 FAIL_SETUP(object_bool_eof1, "{\"a\":f", 64)
+	if (!res.loc || res.loc[0] != 'f') return TEST_BAD;
 FAIL_END
 FAIL_SETUP(object_bool_eof2, "{\"a\":t", 64)
+	if (!res.loc || res.loc[0] != 't') return TEST_BAD;
 FAIL_END
 FAIL_SETUP(object_bool_eof3, "{\"a\":tru ", 64)
+	if (!res.loc || res.loc[0] != 't') return TEST_BAD;
 FAIL_END
 FAIL_SETUP(object_null_eof1, "{\"a\":n", 64)
+	if (!res.loc || res.loc[0] != 'n') return TEST_BAD;
 FAIL_END
 FAIL_SETUP(object_null_eof2, "{\"a\":nul", 64)
+	if (!res.loc || res.loc[0] != 'n') return TEST_BAD;
 FAIL_END
 FAIL_SETUP(object_null_eof3, "{\"a\":nul ", 64)
+	if (!res.loc || res.loc[0] != 'n') return TEST_BAD;
 FAIL_END
 
 FAIL_SETUP(null, "nul", 64)
