@@ -554,53 +554,78 @@ static ejtok_t *value(state_t *const state, const int depth) {
 		state->src++;	// Eat last '}' character
 		break;
 	case '[':
+		// Parse an array, create the array token first
 		tok = addtok(state, EJARR);
+
+		// Parse the whitespace after the initial '['
 		state->src = whitespace(state->src + 1);
 
+		// Make sure we're not at the ending ']' already
+		// If not then actually parse a key and value
 		while (*state->src != ']') {
+			// Parse array value (does whitespace before and after)
 			const ejtok_t *const val = value(state, depth + 1);
+
+			// About out right now if the value had an error
 			if (!val) return NULL;
-			tok->len += val->len;
+			tok->len += val->len;	// Update array length
+
+			// Eat the ',' (no whitespace parsing needed,
+			// value does it)
 			if (*state->src == ',') state->src++;
 		}
 
-		state->src++;
+		state->src++;	// Eat the last ']'
 		break;
-	case '"':
+	case '"':		// Parse and create string token
 		tok = string(state, EJSTR);
 		break;
 	case '-': case '0': case '1': case '2': case '3': case '4':
-	case '5': case '6': case '7': case '8': case '9':
+	case '5': case '6': case '7': case '8': case '9':	// Number token
 		tok = number(state);
 		break;
-	case 't': case 'f':
+	case 't': case 'f':	// Parse and create boolean token
 		tok = boolean(state);
 		break;
-	case 'n':
+	case 'n':		// Parse and create null token
 		tok = null(state);
 		break;
-	case '\0':
+	case '\0':		// Parse '\0', error if not on top-level
 		if (depth) return NULL;
 		else return (void *)1;
 		break;
-	default:
+	default:		// If its anything else, its an error
 		return NULL;
 	}
 
+	// Parse final whitespace (like json spec)
 	state->src = whitespace(state->src);
 	return tok;
 }
 
+// This is just a wrapper around the value parser
+// It just initializes the state and checks for error states
 ejresult_t ejparse(const char *src, ejtok_t *t, size_t nt) {
+	// Create initial state
 	state_t state = {
 		.base = src, .src = src,
 		.tbase = t, .tend = t + nt, .t = t,
 	};
-	
-	const bool passed = value(&state, 0);
-	if (!passed && state.src[-1] == '\0') state.src--;
-	return passed && state.t != state.tend
-		&& *state.src == '\0' ? (ejresult_t){
+
+	// See if the value parsed correctly
+	const bool value_result = value(&state, 0);
+
+	// Small and dumb check. Some functions will return the character after
+	// the error char so we check for null terminator and subtract 1 to
+	// make sure that the err location is within the string
+	if (!value_result && state.src[-1] == '\0') state.src--;
+
+	bool okay = value_result	 // Was there a parsing error?
+		&& state.t != state.tend // Did we take up all memory?
+		&& *state.src == '\0';	 // Make sure we ended at end of string
+
+	// Return ejresult_t value
+	return okay ? (ejresult_t){
 		.err = false,
 		.loc = NULL,
 		.ntoks = 0,
