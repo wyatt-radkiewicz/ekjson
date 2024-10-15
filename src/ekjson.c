@@ -1,10 +1,24 @@
 #include "ekjson.h"
 
+// Makes a u32 literal out of a list of characters (little endian)
 #define STR2U32(A, B, C, D) ((A) | ((B) << 8) | ((C) << 16) | ((D) << 24))
 
+// Main state for the parser (used by most parser functions)
 typedef struct state {
-	const char *base, *src;
-	ejtok_t *tbase, *tend, *t;
+	// Start of the source code (doesn't change)
+	const char *base;
+
+	// Pointer to where we are currently parsing
+	const char *src;
+
+	// Start of the token buffer
+	ejtok_t *tbase;
+	
+	// 1 before the end of the token buffer
+	ejtok_t *tend;
+
+	// Next place to allocate a token
+	ejtok_t *t;
 } state_t;
 
 static inline uint32_t ldu32_unaligned(const void *const buf) {
@@ -16,7 +30,9 @@ static inline uint32_t ldu32_unaligned(const void *const buf) {
 }
 
 // Bit twiddling hacks - https://graphics.stanford.edu/~seander/bithacks.html
-#define haszero(v) (((v) - 0x0101010101010101ull) & ~(v) & 0x8080808080808080ull)
+// These macros check to see if a word has a byte that matches the condition
+#define haszero(v) (((v) - 0x0101010101010101ull) & ~(v) \
+			& 0x8080808080808080ull)
 #define hasvalue(x,n) (haszero((x) ^ (~0ull/255 * (n))))
 #define hasless(x,n) (((x)-~0UL/255*(n))&~(x)&~0UL/255*128)
 
@@ -28,13 +44,16 @@ static inline uint64_t ldu64_unaligned(const void *const buf) {
 		| (uint64_t)bytes[6] << 48 | (uint64_t)bytes[7] << 56;
 }
 
+// Consumes whitespace and returns a pointer to the first non-whitespace char
 static const char *whitespace(const char *src) {
 	for (; *src == ' ' || *src == '\t'
 		|| *src == '\r' || *src == '\n'; src++);
 	return src;
 }
 
-static ejtok_t *addtok(state_t *const state, int type) {
+// Adds a token with the specified type and increments the pointer if there
+// is space
+static ejtok_t *addtok(state_t *const state, const int type) {
 	*state->t = (ejtok_t){
 		.type = type,
 		.len = 1,
@@ -45,6 +64,8 @@ static ejtok_t *addtok(state_t *const state, int type) {
 	return t;
 }
 
+// Used to make tables slightly smaller since everything after the ascii range
+// is treated the same since it needs to be valid UTF-8 for ekjson
 #define FILLCODESPACE(I) \
 	I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, \
 	I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, \
@@ -55,8 +76,14 @@ static ejtok_t *addtok(state_t *const state, int type) {
 	I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, \
 	I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, I,
 
-static ejtok_t *string(state_t *const state, int type) {
+// Parses a string
+// Adds the string token with type 'type'
+// Leaves the source sting at the character after the ending " or after the
+// first error that occurred in the string
+// Returns NULL if error occurred
+static ejtok_t *string(state_t *const state, const int type) {
 #if EKJSON_SPACE_EFFICENT
+	// Space compact tables
 	static const uint8_t groups[256] = {
 		['\\'] = 1,
 		['u'] = 2,
@@ -76,6 +103,10 @@ static ejtok_t *string(state_t *const state, int type) {
 		{ 6, 6, 6, 0, 6, 6 }, // utf hex
 	};
 #else
+	// Big tables, but with 1 less level of indirection
+	// Every array in the table is a state, and every byte in those arrays
+	// specify transitions to be made depending on a source character to
+	// another state
 	static const uint8_t transitions[][256] = {
 		// Normal string
 		{
@@ -146,10 +177,12 @@ static ejtok_t *string(state_t *const state, int type) {
 	};
 #endif
 
+	// Add the token and save a local copy of the source pointer for speed
 	ejtok_t *const tok = addtok(state, type);
 	const char *src = state->src + 1;
 
 #if !EKJSON_NO_BITWISE
+	// Eat 8-byte chunks for as long as we can
 	uint64_t probe = ldu64_unaligned(src);
 	while (!(hasless(probe, 0x20)
 		|| hasvalue(probe, '"')
@@ -159,8 +192,8 @@ static ejtok_t *string(state_t *const state, int type) {
 	}
 #endif
 
+	// Use a dfa to get through things relativly quickly
 	int s = 0;
-
 	do {
 #if EKJSON_SPACE_EFFICENT
 		s = transitions[s][groups[(uint8_t)(*src++)]];
@@ -169,12 +202,20 @@ static ejtok_t *string(state_t *const state, int type) {
 #endif
 	} while (s < 6);
 
+	// Update the normal state source pointer again
 	state->src = src;
+
+	// Return error code if dfa state is in the invalid (6) state
 	return s == 7 ? tok : NULL;
 }
 
+// Parse number
+// Adds token to state variable
+// Leaves state source pointer at the first non-num character
+// Returns NULL if error occurred
 static ejtok_t *number(state_t *const state) {
 #if EKJSON_SPACE_EFFICENT
+	// Same kind of table as described in the string parsing function
 	static const uint8_t groups[256] = {
 		['-'] = 1, ['0'] = 2, ['1'] = 3, 3, 3, 3, 3, 3, 3, 3, 3,
 		['.'] = 4, ['e'] = 5, ['E'] = 5, ['+'] = 6,
@@ -194,6 +235,7 @@ static ejtok_t *number(state_t *const state) {
 		{ 10,  9,  8,  8,  9,  9,  9 }, // Exponent (rest of digits)
 	};
 #else
+	// Same kind of table as described in the string parsing function
 	static const uint8_t transitions[][256] = {
 		// Initial checks
 		{
@@ -378,9 +420,14 @@ static ejtok_t *number(state_t *const state) {
 	};
 #endif
 
+	// Add token
 	ejtok_t *const tok = addtok(state, EJNUM);
+
+	// Create local copy for speed
 	const char *src = state->src;
 
+	// Use dfa to quickly validate the number without having to parse it
+	// fully and correctly
 	int s = 0;
 	while (s < 9) {
 #if EKJSON_SPACE_EFFICENT
@@ -390,60 +437,121 @@ static ejtok_t *number(state_t *const state) {
 #endif
 	}
 
+	// Restore the source pointer to the first different char
 	state->src = src - 1;
+
+	// Return error code if dfa state is in the invalid (9) state
 	return s == 10 ? tok : NULL;
 }
 
+// Parses boolean values aka 'true'/'false'
+// Adds a token
+// Leaves state source pointer right after the 'true'/'false'
+// Returns NULL if the source is not 'true'/'false'
 static ejtok_t *boolean(state_t *const state) {
+	// Add the token here
 	ejtok_t *const tok = addtok(state, EJBOOL);
+
+	// See if it is 'false'?
 	const bool bfalse =
 		(state->src[4] == 'e')
 		& (ldu32_unaligned(state->src) == STR2U32('f', 'a', 'l', 's'));
+
+	// Check if its either false or 'true'
 	const bool bvalid = bfalse
 		| (ldu32_unaligned(state->src) == STR2U32('t', 'r', 'u', 'e'));
+
+	// A mask. 0xFFFFFFFFFFFFFFFF if valid, 0 if not
 	const uint64_t valid = bvalid * (uint64_t)(-1);
 
+	// Increment pointer
 	state->src += 4 * bvalid + bfalse;
+
+	// Return NULL if either token was NULL or it wasn't valid
 	return (ejtok_t *)((uint64_t)tok & valid);
 }
 
+// Parses null value aka 'null'
+// Adds a token
+// Leaves state source pointer right after the 'null'
+// Returns NULL if the source is not 'null'
 static ejtok_t *null(state_t *const state) {
+	// Add the token here
 	ejtok_t *const tok = addtok(state, EJNULL);
+
+	// See if it is 'null'?
 	const bool bvalid =
 		ldu32_unaligned(state->src) == STR2U32('n', 'u', 'l', 'l');
+
+	// A mask. 0xFFFFFFFFFFFFFFFF if valid, 0 if not
 	const uint64_t valid = bvalid * (uint64_t)(-1);
 
+	// Increment pointer
 	state->src += 4 * bvalid;
+
+	// Return NULL if either token was NULL or it wasn't valid
 	return (ejtok_t *)((uint64_t)tok & valid);
 }
 
+// Main heartbeat of the ekjson parser
+// This will parse anything in a json document
+// Takes in a depth parameter to make sure that no stack overflows can occur
 static ejtok_t *value(state_t *const state, const int depth) {
+	// The token that we are parsing (also the value)
 	ejtok_t *tok = NULL;
 
+	// Check if we are over the callstack limit
+	if (depth >= EKJSON_MAX_DEPTH) return NULL;
+
+	// Eat whitespace first as per spec
 	state->src = whitespace(state->src);
+
+	// Figure out what kind of value/token we are going to parse
 	switch (*state->src) {
 	case '{':
+		// Parse an object, add the token first
 		tok = addtok(state, EJOBJ);
+
+		// Parse whitespace after initial '{'
 		state->src = whitespace(state->src + 1);
 
+		// Make sure we're not at the ending '}' already
+		// If not then actually parse a key and value
 		while (*state->src != '}') {
+			// Get the key eg. "a"
 			ejtok_t *const key = string(state, EJKV);
+
+			// Do an early check for : since most documents
+			// have the : right after the key with no whitespace
+			// (this is a situational optimization but doesn't
+			//  hurt in terms of performance if the assumption is
+			//  incorrect)
 			if (*state->src != ':') {
+				// Parse the whitespace after the key
 				state->src = whitespace(state->src);
 				if (*state->src++ != ':') return NULL;
 			} else {
 				state->src++;
 			}
+
+			// Now take the value. No need to parse whitespace
+			// since values already do that initially
 			const ejtok_t *const val = value(state, depth + 1);
+
+			// If the key and value had errors, exit now
 			if (!(key && val)) return NULL;
+
+			// Update the key and object length
 			key->len += val->len;
 			tok->len += val->len + 1;
  			if (*state->src == ',') {
+				// Make sure to parse whitespace for next key
+				// and also skip the ','
 				state->src = whitespace(state->src + 1);
 			}
 		}
 
-		state->src++;
+		state->src++;	// Eat last '}' character
 		break;
 	case '[':
 		tok = addtok(state, EJARR);

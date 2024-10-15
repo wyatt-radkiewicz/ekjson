@@ -11,6 +11,10 @@
 // When set, turns off 'bitwise' 64bit tricks
 #define EKJSON_NO_BITWISE 0
 
+// Max value depth that the json document can go.
+// ekjson uses recurrsion so keep that in mind when setting this number
+#define EKJSON_MAX_DEPTH 64
+
 // A ekjson document is a collection of tokens representing the document
 // These tokens are only valid if you run ej* functions on them to ensure
 // validation. If its a object, key/value, or array token, then it is already

@@ -4,7 +4,7 @@
 #include <time.h>
 
 #define ITERS 100
-#define NBENCHMARKS 6
+#define NBENCHMARKS 7
 
 typedef int(benchmark_fn)(const char *);
 typedef void(cleanup_fn)(void);
@@ -41,6 +41,11 @@ static const struct benchmark {
 		.fn = benchmark_ekjson,
 		.cleanup = cleanup_ekjson,
 		.name = "ekjson"
+	},
+	{
+		.fn = benchmark_jjson,
+		.cleanup = cleanup_jjson,
+		.name = "jjson"
 	},
 	{
 		.fn = benchmark_rapidjson,
