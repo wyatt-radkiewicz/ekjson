@@ -397,7 +397,41 @@ FAIL_END
 FAIL_SETUP(string_escape, "\"\\u12i4\"", 64)
 FAIL_END
 
-FAIL_SETUP(object_missing_quote, "{\"a\":\"abc", 64)
+FAIL_SETUP(object_key_missing_quote1, "{\"a", 64)
+FAIL_END
+FAIL_SETUP(object_key_missing_quote2, "{\"abc", 64)
+FAIL_END
+FAIL_SETUP(object_key_missing_quote3, "{\"abcdefgh", 64)
+FAIL_END
+FAIL_SETUP(object_string_missing_quote1, "{\"a\":\"a", 64)
+FAIL_END
+FAIL_SETUP(object_string_missing_quote2, "{\"a\":\"abc", 64)
+FAIL_END
+FAIL_SETUP(object_string_missing_quote3, "{\"a\":\"abcdefgh", 64)
+FAIL_END
+FAIL_SETUP(object_string_missing_quote4, "{\"a\":\"abcdef\\", 64)
+FAIL_END
+FAIL_SETUP(object_string_missing_quote5, "{\"a\":\"abcdef\\u34", 64)
+FAIL_END
+FAIL_SETUP(object_number_eof1, "{\"a\":435.", 64)
+FAIL_END
+FAIL_SETUP(object_number_eof2, "{\"a\":435e", 64)
+FAIL_END
+FAIL_SETUP(object_number_eof3, "{\"a\":435e+", 64)
+FAIL_END
+FAIL_SETUP(object_number_eof4, "{\"a\":-", 64)
+FAIL_END
+FAIL_SETUP(object_bool_eof1, "{\"a\":f", 64)
+FAIL_END
+FAIL_SETUP(object_bool_eof2, "{\"a\":t", 64)
+FAIL_END
+FAIL_SETUP(object_bool_eof3, "{\"a\":tru ", 64)
+FAIL_END
+FAIL_SETUP(object_null_eof1, "{\"a\":n", 64)
+FAIL_END
+FAIL_SETUP(object_null_eof2, "{\"a\":nul", 64)
+FAIL_END
+FAIL_SETUP(object_null_eof3, "{\"a\":nul ", 64)
 FAIL_END
 
 FAIL_SETUP(null, "nul", 64)
@@ -486,7 +520,25 @@ static const test_t tests[] = {
 	TEST_ADD(fail_string_missing_begin_quote)
 	TEST_ADD(fail_string_missing_end_quote)
 	TEST_ADD(fail_string_escape)
-	TEST_ADD(fail_object_missing_quote)
+	TEST_PAD
+	TEST_ADD(fail_object_key_missing_quote1)
+	TEST_ADD(fail_object_key_missing_quote2)
+	TEST_ADD(fail_object_key_missing_quote3)
+	TEST_ADD(fail_object_string_missing_quote1)
+	TEST_ADD(fail_object_string_missing_quote2)
+	TEST_ADD(fail_object_string_missing_quote3)
+	TEST_ADD(fail_object_string_missing_quote4)
+	TEST_ADD(fail_object_string_missing_quote5)
+	TEST_ADD(fail_object_number_eof1)
+	TEST_ADD(fail_object_number_eof2)
+	TEST_ADD(fail_object_number_eof3)
+	TEST_ADD(fail_object_number_eof4)
+	TEST_ADD(fail_object_bool_eof1)
+	TEST_ADD(fail_object_bool_eof2)
+	TEST_ADD(fail_object_bool_eof3)
+	TEST_ADD(fail_object_null_eof1)
+	TEST_ADD(fail_object_null_eof2)
+	TEST_ADD(fail_object_null_eof3)
 	TEST_PAD
 	TEST_ADD(fail_null)
 };

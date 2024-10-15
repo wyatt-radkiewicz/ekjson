@@ -34,11 +34,20 @@ typedef struct ejresult {
 } ejresult_t;
 
 // Parses and partially validates a json file. Expects src to be a valid
-// UTF-8/WTF-8 string. See the documentation for ejtok for more details.
+// UTF-8/WTF-8 string.
+// Writes tokens to the t buffer. Will give an error if there is not enough
+// buffer storage for the whole json file.
+// See the ejtok_t documentation for more details.
 ejresult_t ejparse(const char *src, ejtok_t *t, size_t nt);
 
-// Returns what the length of the string is (not including null-terminator)
-size_t ejstr(const char *src, const ejtok_t t, char *out, size_t outlen);
+// Copies and escapes a json string/kv to a string buffer
+// Takes in json source, token, and the out buffer and out length
+// If out is non-null and outlen is greater than 0, it will write characters
+// until outlen-1 and then output a null-terminator meaning the output buffer
+// will always be null-terminated.
+// Returns length of what the would be string would be (not including null
+// terminator)
+size_t ejstr(const char *tok_start, char *out, size_t outlen);
 
 // Compares the string token to a normal c string
 bool ejcmp(const char *src, const ejtok_t t, const char *other);

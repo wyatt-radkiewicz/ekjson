@@ -3,6 +3,20 @@
 // Makes a u32 literal out of a list of characters (little endian)
 #define STR2U32(A, B, C, D) ((A) | ((B) << 8) | ((C) << 16) | ((D) << 24))
 
+// Always inline macros
+#ifdef __GNUC__
+#define EKJSON_ALWAYS_INLINE __attribute__((always_inline))
+#else
+#define EKJSON_ALWAYS_INLINE
+#endif
+
+// (except for in space efficient mode)
+#if EKJSON_SPACE_EFFICENT
+#	define EKJSON_INLINE
+#else
+#	define EKJSON_INLINE EKJSON_ALWAYS_INLINE
+#endif
+
 // Main state for the parser (used by most parser functions)
 typedef struct state {
 	// Start of the source code (doesn't change)
@@ -21,7 +35,7 @@ typedef struct state {
 	ejtok_t *t;
 } state_t;
 
-static inline uint32_t ldu32_unaligned(const void *const buf) {
+static EKJSON_ALWAYS_INLINE uint32_t ldu32_unaligned(const void *const buf) {
 	const uint8_t *const bytes = buf;
 	return (uint32_t)bytes[0]
 		| (uint32_t)bytes[1] << 8
@@ -36,7 +50,7 @@ static inline uint32_t ldu32_unaligned(const void *const buf) {
 #define hasvalue(x,n) (haszero((x) ^ (~0ull/255 * (n))))
 #define hasless(x,n) (((x)-~0UL/255*(n))&~(x)&~0UL/255*128)
 
-static inline uint64_t ldu64_unaligned(const void *const buf) {
+static EKJSON_ALWAYS_INLINE uint64_t ldu64_unaligned(const void *const buf) {
 	const uint8_t *const bytes = buf;
 	return (uint64_t)bytes[0] | (uint64_t)bytes[1] << 8
 		| (uint64_t)bytes[2] << 16 | (uint64_t)bytes[3] << 24
@@ -45,7 +59,7 @@ static inline uint64_t ldu64_unaligned(const void *const buf) {
 }
 
 // Consumes whitespace and returns a pointer to the first non-whitespace char
-static const char *whitespace(const char *src) {
+static EKJSON_ALWAYS_INLINE const char *whitespace(const char *src) {
 	for (; *src == ' ' || *src == '\t'
 		|| *src == '\r' || *src == '\n'; src++);
 	return src;
@@ -53,7 +67,7 @@ static const char *whitespace(const char *src) {
 
 // Adds a token with the specified type and increments the pointer if there
 // is space
-static ejtok_t *addtok(state_t *const state, const int type) {
+static EKJSON_INLINE ejtok_t *addtok(state_t *const state, const int type) {
 	*state->t = (ejtok_t){
 		.type = type,
 		.len = 1,
@@ -81,7 +95,7 @@ static ejtok_t *addtok(state_t *const state, const int type) {
 // Leaves the source sting at the character after the ending " or after the
 // first error that occurred in the string
 // Returns NULL if error occurred
-static ejtok_t *string(state_t *const state, const int type) {
+static EKJSON_INLINE ejtok_t *string(state_t *const state, const int type) {
 #if EKJSON_SPACE_EFFICENT
 	// Space compact tables
 	static const uint8_t groups[256] = {
@@ -203,6 +217,13 @@ static ejtok_t *string(state_t *const state, const int type) {
 	} while (s < 6);
 
 	// Update the normal state source pointer again
+	// NOTE: Problem here that gets fixed at the ejparse wrapper:
+	// For some reason fixing the src pointer when errors occur here fucks
+	// up the code speed, so we don't actually ensure the src pointer is
+	// pointing in the actual string.
+	// TLDR: When an error occurs, the src pointer points to the char after
+	// the error char meaning that it can point after the null-terminator,
+	// this gets fixed in ejparse instead of here due to speed :/
 	state->src = src;
 
 	// Return error code if dfa state is in the invalid (6) state
@@ -213,7 +234,7 @@ static ejtok_t *string(state_t *const state, const int type) {
 // Adds token to state variable
 // Leaves state source pointer at the first non-num character
 // Returns NULL if error occurred
-static ejtok_t *number(state_t *const state) {
+static EKJSON_INLINE ejtok_t *number(state_t *const state) {
 #if EKJSON_SPACE_EFFICENT
 	// Same kind of table as described in the string parsing function
 	static const uint8_t groups[256] = {
@@ -448,7 +469,7 @@ static ejtok_t *number(state_t *const state) {
 // Adds a token
 // Leaves state source pointer right after the 'true'/'false'
 // Returns NULL if the source is not 'true'/'false'
-static ejtok_t *boolean(state_t *const state) {
+static EKJSON_INLINE ejtok_t *boolean(state_t *const state) {
 	// Add the token here
 	ejtok_t *const tok = addtok(state, EJBOOL);
 
@@ -475,7 +496,7 @@ static ejtok_t *boolean(state_t *const state) {
 // Adds a token
 // Leaves state source pointer right after the 'null'
 // Returns NULL if the source is not 'null'
-static ejtok_t *null(state_t *const state) {
+static EKJSON_INLINE ejtok_t *null(state_t *const state) {
 	// Add the token here
 	ejtok_t *const tok = addtok(state, EJNULL);
 
@@ -615,12 +636,19 @@ ejresult_t ejparse(const char *src, ejtok_t *t, size_t nt) {
 	// See if the value parsed correctly
 	const bool value_result = value(&state, 0);
 
-	// Small and dumb check. Some functions will return the character after
-	// the error char so we check for null terminator and subtract 1 to
-	// make sure that the err location is within the string
-	if (!value_result && state.src[-1] == '\0') state.src--;
+	// BAD CODE WARNING (jk)
+	// So since the error location is returned after an error occured the
+	// source pointer must point inside the string. The string() function
+	// will return the char after the error character which is a fine
+	// enough trade-off except for the part where it will return the char
+	// after the null terminator :/. This is a fix for that.
+	if (!value_result			// Did we even get an error
+		&& state.src > state.base	// Are we beyond first char?
+		&& state.src[-1] == '\0') {	// Did we skip null-terminator?
+		state.src--;			// Fix the fuckup
+	}
 
-	bool okay = value_result	 // Was there a parsing error?
+	const bool okay = value_result	 // Was there a parsing error?
 		&& state.t != state.tend // Did we take up all memory?
 		&& *state.src == '\0';	 // Make sure we ended at end of string
 
