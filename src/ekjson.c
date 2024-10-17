@@ -17,6 +17,90 @@
 #	define EKJSON_INLINE EKJSON_ALWAYS_INLINE
 #endif
 
+// Bit twiddling hacks - https://graphics.stanford.edu/~seander/bithacks.html
+// These macros check to see if a word has a byte that matches the condition
+#if !EKJSON_NO_BITWISE
+#define haszero(v) (((v) - 0x0101010101010101ull) & ~(v) \
+			& 0x8080808080808080ull)
+#define hasvalue(x,n) (haszero((x) ^ (~0ull/255 * (n))))
+#define hasless(x,n) (((x)-~0UL/255*(n))&~(x)&~0UL/255*128)
+#endif
+
+// Used to make tables slightly smaller since everything after the ascii range
+// is treated the same since it needs to be valid UTF-8 for ekjson
+#define FILLCODESPACE(I) \
+	I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, \
+	I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, \
+	I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, \
+	I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, \
+	I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, \
+	I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, \
+	I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, \
+	I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, I,
+
+// Wrappers for loading u32/u64 on unaligned addresses
+static EKJSON_ALWAYS_INLINE uint32_t ldu32_unaligned(const void *const buf) {
+	const uint8_t *const bytes = buf;
+	return (uint32_t)bytes[0]
+		| (uint32_t)bytes[1] << 8
+		| (uint32_t)bytes[2] << 16
+		| (uint32_t)bytes[3] << 24;
+}
+static EKJSON_ALWAYS_INLINE uint64_t ldu64_unaligned(const void *const buf) {
+	const uint8_t *const bytes = buf;
+	return (uint64_t)bytes[0] | (uint64_t)bytes[1] << 8
+		| (uint64_t)bytes[2] << 16 | (uint64_t)bytes[3] << 24
+		| (uint64_t)bytes[4] << 32 | (uint64_t)bytes[5] << 40
+		| (uint64_t)bytes[6] << 48 | (uint64_t)bytes[7] << 56;
+}
+
+static uint8_t hex2num(const uint8_t hex) {
+	static const uint8_t table[] = {
+		['0'] = 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+		['a'] = 0xA, 0xB, 0xC, 0xD, 0xE, 0xF,
+		['A'] = 0xA, 0xB, 0xC, 0xD, 0xE, 0xF,
+	};
+	return table[hex];
+}
+
+static uint32_t str2hex(const char *src) {
+	return (uint32_t)hex2num(src[0]) << 12
+		| (uint32_t)hex2num(src[1]) << 8
+		| (uint32_t)hex2num(src[2]) << 4
+		| (uint32_t)hex2num(src[3]);
+}
+
+static size_t hex2utf8(const char *src, char out[static const 4]) {
+	const uint32_t hi = str2hex(src);
+	if (hi < 0x80) {
+		out[0] = hi;
+		return 1;
+	} else if (hi < 0x800) {
+		out[0] = 0xC0 | (hi >> 6);
+		out[1] = 0x80 | (hi & 0x3F);
+		return 2;
+	} else if (hi < 0xD800 || hi > 0xDFFF) {
+		out[0] = 0xE0 | (hi >> 12);
+		out[1] = 0x80 | (hi >> 6 & 0x3F);
+		out[2] = 0x80 | (hi & 0x3F);
+		return 3;
+	} else {
+		if (hi > 0xDBFF) return 0;
+		if (src[4] != '\\' && src[5] != 'u') return 0;
+
+		const uint32_t lo = str2hex(src + 6);
+		if (lo < 0xDC00 || lo > 0xDFFF) return 0;
+
+		const uint32_t final =
+			((hi - 0xD800) << 10) + (lo - 0xDC00) + 0x10000;
+		out[0] = 0xF0 | (final >> 18);
+		out[1] = 0x80 | (final >> 12 & 0x3F);
+		out[2] = 0x80 | (final >> 6 & 0x3F);
+		out[3] = 0x80 | (final & 0x3F);
+		return 4;
+	}
+}
+
 // Main state for the parser (used by most parser functions)
 typedef struct state {
 	// Start of the source code (doesn't change)
@@ -34,29 +118,6 @@ typedef struct state {
 	// Next place to allocate a token
 	ejtok_t *t;
 } state_t;
-
-static EKJSON_ALWAYS_INLINE uint32_t ldu32_unaligned(const void *const buf) {
-	const uint8_t *const bytes = buf;
-	return (uint32_t)bytes[0]
-		| (uint32_t)bytes[1] << 8
-		| (uint32_t)bytes[2] << 16
-		| (uint32_t)bytes[3] << 24;
-}
-
-// Bit twiddling hacks - https://graphics.stanford.edu/~seander/bithacks.html
-// These macros check to see if a word has a byte that matches the condition
-#define haszero(v) (((v) - 0x0101010101010101ull) & ~(v) \
-			& 0x8080808080808080ull)
-#define hasvalue(x,n) (haszero((x) ^ (~0ull/255 * (n))))
-#define hasless(x,n) (((x)-~0UL/255*(n))&~(x)&~0UL/255*128)
-
-static EKJSON_ALWAYS_INLINE uint64_t ldu64_unaligned(const void *const buf) {
-	const uint8_t *const bytes = buf;
-	return (uint64_t)bytes[0] | (uint64_t)bytes[1] << 8
-		| (uint64_t)bytes[2] << 16 | (uint64_t)bytes[3] << 24
-		| (uint64_t)bytes[4] << 32 | (uint64_t)bytes[5] << 40
-		| (uint64_t)bytes[6] << 48 | (uint64_t)bytes[7] << 56;
-}
 
 // Consumes whitespace and returns a pointer to the first non-whitespace char
 static EKJSON_ALWAYS_INLINE const char *whitespace(const char *src) {
@@ -77,18 +138,6 @@ static EKJSON_INLINE ejtok_t *addtok(state_t *const state, const int type) {
 	state->t += state->t != state->tend;
 	return t;
 }
-
-// Used to make tables slightly smaller since everything after the ascii range
-// is treated the same since it needs to be valid UTF-8 for ekjson
-#define FILLCODESPACE(I) \
-	I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, \
-	I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, \
-	I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, \
-	I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, \
-	I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, \
-	I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, \
-	I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, \
-	I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, I,
 
 // Parses a string
 // Adds the string token with type 'type'
@@ -665,5 +714,52 @@ ejresult_t ejparse(const char *src, ejtok_t *t, size_t nt) {
 		.loc = state.src,
 		.ntoks = state.t - state.tbase,
 	};
+}
+
+static bool escape(const char **src, char **out,
+		char **end, size_t *len) {
+	if (*++*src != 'u') {
+		if (*out != *end) *(*out)++ = **src;
+		++*src, ++*len;
+		return true;
+	}
+
+	char utf8[4];
+	const size_t u8len = hex2utf8(++*src, utf8);
+	if (u8len == 0) {
+		return 0;
+	} else if (*out + u8len < *end) {
+		char *tmp = utf8;
+		switch (u8len) {
+		case 4: *(*out)++ = *tmp++;
+		case 3: *(*out)++ = *tmp++;
+		case 2: *(*out)++ = *tmp++;
+		case 1: *(*out)++ = *tmp++;
+		}
+	} else {
+		*end = *out;
+	}
+
+	*src += u8len == 4 ? 6+4 : 4;
+	*len += u8len;
+	return true;
+}
+
+size_t ejstr(const char *src, char *out, const size_t outlen) {
+	char *end = outlen ? (out ? out + outlen - 1 : NULL) : out;
+
+	++src;
+	size_t len = 1;
+	while (*src != '"') {
+		if (*src == '\\') {
+			if (!escape(&src, &out, &end, &len)) return 0;
+		} else {
+			if (out < end) *out++ = *src;
+			++src, ++len;
+		}
+	}
+
+	if (out) *out = '\0';
+	return len;
 }
 

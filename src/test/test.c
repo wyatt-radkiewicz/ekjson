@@ -1,4 +1,6 @@
 #include <stdint.h>
+#include <string.h>
+#include <time.h>
 
 #include "../ekjson.h"
 #include "ek.h"
@@ -456,6 +458,161 @@ FAIL_SETUP(null, "nul", 64)
 	CHECK_SIMPLE(EJNULL, 1, 1)
 FAIL_END
 
+static bool pass_ejstr_len1(unsigned test) {
+	return ejstr("\"abcdef\"", NULL, 0) == 7;
+}
+static bool pass_ejstr_len2(unsigned test) {
+	return ejstr("\"abc\ndef\"", NULL, 0) == 8;
+}
+static bool pass_ejstr_len3(unsigned test) {
+	return ejstr("\"abc\\u003Fdef\"", NULL, 0) == 8;
+}
+static bool pass_ejstr_len4(unsigned test) {
+	return ejstr("\"abc\\u00DAdef\"", NULL, 0) == 9;
+}
+static bool pass_ejstr_len5(unsigned test) {
+	return ejstr("\"abc\\u235Edef\"", NULL, 0) == 10;
+}
+static bool pass_ejstr_len6(unsigned test) {
+	return ejstr("\"abc\\uD835\\uDC0Bdef\"", NULL, 0) == 11;
+}
+static bool pass_ejstr_len7(unsigned test) {
+	return ejstr("\"abcÚdef\"", NULL, 0) == 9;
+}
+static bool fail_ejstr_len1(unsigned test) {
+	return ejstr("\"abc\\uD800\\uD800Bef\"", NULL, 0) == 0;
+}
+static bool fail_ejstr_len2(unsigned test) {
+	return ejstr("\"abc\\uDC0B\\uD835def\"", NULL, 0) == 0;
+}
+
+static bool pass_ejstr_escape1(unsigned test) {
+	char buf[32];
+	const size_t len = ejstr("\"abcdef\"", buf, sizeof(buf));
+	if (len != 7) return TEST_BAD;
+	if (strncmp(buf, "abcdef", sizeof(buf)) != 0) return TEST_BAD;
+	return true;
+}
+static bool pass_ejstr_escape2(unsigned test) {
+	char buf[32];
+	const size_t len = ejstr("\"abc\ndef\"", buf, sizeof(buf));
+	if (len != 8) return TEST_BAD;
+	if (strncmp(buf, "abc\ndef", sizeof(buf)) != 0) return TEST_BAD;
+	return true;
+}
+static bool pass_ejstr_escape3(unsigned test) {
+	char buf[32];
+	const size_t len = ejstr("\"abc\\u003Fdef\"", buf, sizeof(buf));
+	if (len != 8) return TEST_BAD;
+	if (strncmp(buf, "abc?def", sizeof(buf)) != 0) return TEST_BAD;
+	return true;
+}
+static bool pass_ejstr_escape4(unsigned test) {
+	char buf[32];
+	const size_t len = ejstr("\"abc\\u00DAdef\"", buf, sizeof(buf));
+	if (len != 9) return TEST_BAD;
+	if (strncmp(buf, "abcÚdef", sizeof(buf)) != 0) return TEST_BAD;
+	return true;
+}
+static bool pass_ejstr_escape5(unsigned test) {
+	char buf[32];
+	const size_t len = ejstr("\"abc\\u235Edef\"", buf, sizeof(buf));
+	if (len != 10) return TEST_BAD;
+	if (strncmp(buf, "abc⍞def", sizeof(buf)) != 0) return TEST_BAD;
+	return true;
+}
+static bool pass_ejstr_escape6(unsigned test) {
+	char buf[32];
+	const size_t len = ejstr("\"abc\\uD83D\\uDE03def\"", buf, sizeof(buf));
+	if (len != 11) return TEST_BAD;
+	if (strncmp(buf, "abc😃def", sizeof(buf)) != 0) return TEST_BAD;
+	return true;
+}
+static bool pass_ejstr_escape7(unsigned test) {
+	char buf[32];
+	const size_t len = ejstr("\"abcÚdef\"", buf, sizeof(buf));
+	if (len != 9) return TEST_BAD;
+	if (strncmp(buf, "abcÚdef", sizeof(buf)) != 0) return TEST_BAD;
+	return true;
+}
+
+static bool pass_ejstr_overflow1(unsigned test) {
+	char buf[4];
+	const size_t len = ejstr("\"abcdef\"", buf, sizeof(buf));
+	if (len != 7) return TEST_BAD;
+	if (strnlen(buf, 100) != 3) return TEST_BAD;
+	if (strcmp(buf, "abc") != 0) return TEST_BAD;
+	return true;
+}
+static bool pass_ejstr_overflow2(unsigned test) {
+	char buf[4];
+	const size_t len = ejstr("\"ab\\uD83D\\uDE03\"", buf, sizeof(buf));
+	if (len != 7) return TEST_BAD;
+	if (strnlen(buf, 100) != 2) return TEST_BAD;
+	if (strcmp(buf, "ab") != 0) return TEST_BAD;
+	return true;
+}
+
+extern const char hell1_escaped[], hell1_string[];
+extern size_t hell1_size;
+static bool pass_ejstr_hell1(unsigned test) {
+	char buf[1024];
+	if (ejstr(hell1_escaped, buf, sizeof(buf)) != hell1_size) return TEST_BAD;
+	if (strncmp(buf, hell1_string, 1024) != 0) return TEST_BAD;
+	return true;
+}
+
+extern const char hell2_escaped[], hell2_string[];
+extern size_t hell2_size;
+static bool pass_ejstr_hell2(unsigned test) {
+	char buf[4096];
+	if (ejstr(hell2_escaped, buf, sizeof(buf)) != hell2_size) return TEST_BAD;
+	if (strncmp(buf, hell2_string, 4096) != 0) return TEST_BAD;
+	return true;
+}
+
+extern const char hell3[];
+static bool pass_ejstr_hell3(unsigned test) {
+	static ejtok_t t[16384];
+	return !ejparse(hell3, t, arrlen(t)).err;
+}
+
+extern const char hell4[];
+static bool pass_ejstr_hell4(unsigned test) {
+	static ejtok_t t[16384];
+	return !ejparse(hell4, t, arrlen(t)).err;
+}
+
+extern const char speed_test_normal[], speed_test_quoted[], speed_test_utf[];
+static bool test_ejstr_speed(unsigned test) {
+	static const char *test_strings[] = {
+		speed_test_normal, speed_test_quoted, speed_test_utf
+	};
+	static const char *test_names[] = {
+		"normal", "quotes", "utf"
+	};
+	static char buf[16384];
+	const int niters = 2000;
+
+	printf("\n");
+	for (int i = 0; i < arrlen(test_names); i++) {
+		printf("starting speed test \"%s\"\n", test_names[i]);
+		const double len = (double)(strlen(test_strings[i]) + 1)
+			/ 1024.0 / 1024.0 / 1024.0;
+
+		const clock_t start = clock();
+		for (int n = 0; n < niters; n++) {
+			ejstr(test_strings[i], buf, sizeof(buf));
+		}
+		const double time = (double)(clock() - start) / CLOCKS_PER_SEC;
+
+		printf("throughput: %f GB/s\n", len / (time / niters));
+	}
+
+	return true;
+}
+
+
 static const test_t tests[] = {
 	TEST_ADD(pass_nothing)
 	TEST_PAD
@@ -559,19 +716,39 @@ static const test_t tests[] = {
 	TEST_ADD(fail_object_null_eof3)
 	TEST_PAD
 	TEST_ADD(fail_null)
+	TEST_PAD
+	TEST_ADD(pass_ejstr_len1)
+	TEST_ADD(pass_ejstr_len2)
+	TEST_ADD(pass_ejstr_len3)
+	TEST_ADD(pass_ejstr_len4)
+	TEST_ADD(pass_ejstr_len5)
+	TEST_ADD(pass_ejstr_len6)
+	TEST_ADD(pass_ejstr_len7)
+	TEST_ADD(fail_ejstr_len1)
+	TEST_ADD(fail_ejstr_len2)
+	TEST_PAD
+	TEST_ADD(pass_ejstr_escape1)
+	TEST_ADD(pass_ejstr_escape2)
+	TEST_ADD(pass_ejstr_escape3)
+	TEST_ADD(pass_ejstr_escape4)
+	TEST_ADD(pass_ejstr_escape5)
+	TEST_ADD(pass_ejstr_escape6)
+	TEST_ADD(pass_ejstr_escape7)
+	TEST_PAD
+	TEST_ADD(pass_ejstr_overflow1)
+	TEST_ADD(pass_ejstr_overflow2)
+	TEST_PAD
+	TEST_ADD(pass_ejstr_hell1)
+	TEST_ADD(pass_ejstr_hell2)
+	TEST_ADD(pass_ejstr_hell3)
+	TEST_ADD(pass_ejstr_hell4)
+	TEST_PAD
+	TEST_ADD(test_ejstr_speed)
 };
 
 int main(int argc, char **argv) {
 	return tests_run_foreach(NULL, tests, arrlen(tests), stdout) ? 0 : -1;
 }
 
-//#include "../ekjson.h"
-//
-//int main(int argc, char **argv) {
-//	ejtok_t t[256];
-//	ejresult_t res = ejparse(
-//		"{ \"hello\" : \"L Bozo\", \"a\": 5 }",
-//		t, 256);
-//	return 0;
-//}
+
 

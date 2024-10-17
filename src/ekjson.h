@@ -5,7 +5,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-// Removes big tables in the source code when set to true
+// Removes big tables and stops inlining for functions in the source code
+// when set to true
 #define EKJSON_SPACE_EFFICENT 0
 
 // When set, turns off 'bitwise' 64bit tricks
@@ -45,8 +46,10 @@ ejresult_t ejparse(const char *src, ejtok_t *t, size_t nt);
 // If out is non-null and outlen is greater than 0, it will write characters
 // until outlen-1 and then output a null-terminator meaning the output buffer
 // will always be null-terminated.
-// Returns length of what the would be string would be (not including null
-// terminator)
+// Returns length of what the would be string would be (including null
+// terminator so that length is always above 0 when there are no errors)
+// If the string contains an invalid utf-8 codepoint or surrogate, it will
+// return the length as 0 to signify error
 size_t ejstr(const char *tok_start, char *out, size_t outlen);
 
 // Compares the string token to a normal c string
