@@ -53,7 +53,7 @@ ejresult_t ejparse(const char *src, ejtok_t *t, size_t nt);
 size_t ejstr(const char *tok_start, char *out, size_t outlen);
 
 // Compares the string token to a normal c string
-bool ejcmp(const char *src, const ejtok_t t, const char *other);
+bool ejcmp(const char *tok_start, const char *cstr);
 
 // Returns the number token as a float
 double ejflt(const char *src, const ejtok_t t);

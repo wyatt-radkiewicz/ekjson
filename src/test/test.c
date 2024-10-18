@@ -583,31 +583,66 @@ static bool pass_ejstr_hell4(unsigned test) {
 	return !ejparse(hell4, t, arrlen(t)).err;
 }
 
+extern void unopt_strtest(volatile size_t *size,
+			const char *restrict a,
+			const char *restrict b);
+static size_t byte_strlen(const char *str) {
+	size_t len = 0;
+	while (*str++) len++;
+	return len;
+}
+
 extern const char speed_test_normal[], speed_test_quoted[], speed_test_utf[];
 static bool test_ejstr_speed(unsigned test) {
-	static const char *test_strings[] = {
+	volatile size_t _total_len = 0;
+	static const char *test_strings[3] = {
 		speed_test_normal, speed_test_quoted, speed_test_utf
 	};
-	static const char *test_names[] = {
-		"normal", "quotes", "utf"
-	};
+	static const char *test_names[3] = { "normal", "quotes", "utf" };
 	static char buf[16384];
-	const int niters = 2000;
+	const int niters = 50000;
+	double tps[3];
 
 	printf("\n");
-	for (int i = 0; i < arrlen(test_names); i++) {
+	for (int i = 0; i < 3; i++) {
 		printf("starting speed test \"%s\"\n", test_names[i]);
 		const double len = (double)(strlen(test_strings[i]) + 1)
 			/ 1024.0 / 1024.0 / 1024.0;
+		clock_t start;
+		double time;
 
-		const clock_t start = clock();
+		// strcmp
+		start = clock();
+		for (int n = 0; n < niters; n++) {
+			unopt_strtest(&_total_len, test_strings[i],
+					test_strings[i]);
+		}
+		time = (double)(clock() - start) / CLOCKS_PER_SEC;
+		printf("strcmp  throughput: %.2f GB/s\n",
+			len / (time / niters));
+
+		// naive strlen
+		start = clock();
+		for (int n = 0; n < niters; n++) {
+			_total_len += byte_strlen(test_strings[i]);
+		}
+		time = (double)(clock() - start) / CLOCKS_PER_SEC;
+		printf("bstrlen throughput: %.2f GB/s\n",
+			len / (time / niters));
+
+		// ejstr
+		start = clock();
 		for (int n = 0; n < niters; n++) {
 			ejstr(test_strings[i], buf, sizeof(buf));
 		}
-		const double time = (double)(clock() - start) / CLOCKS_PER_SEC;
-
-		printf("throughput: %f GB/s\n", len / (time / niters));
+		time = (double)(clock() - start) / CLOCKS_PER_SEC;
+		
+		tps[i] = len / (time / niters);
+		printf("ejstr   throughput: %.2f GB/s\n", tps[i]);
 	}
+
+	for (int i = 0; i < 3; i++) printf("%.2f,\t", tps[i]);
+	printf("\n");
 
 	return true;
 }

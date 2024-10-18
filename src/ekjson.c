@@ -53,7 +53,17 @@ static EKJSON_ALWAYS_INLINE uint64_t ldu64_unaligned(const void *const buf) {
 		| (uint64_t)bytes[4] << 32 | (uint64_t)bytes[5] << 40
 		| (uint64_t)bytes[6] << 48 | (uint64_t)bytes[7] << 56;
 }
+static EKJSON_ALWAYS_INLINE void stu64_unaligned(void *const buf,
+						const uint64_t x) {
+    uint8_t *const bytes = buf;
+    bytes[0] = x & 0xFF, bytes[1] = x >> 8 & 0xFF;
+    bytes[2] = x >> 16 & 0xFF, bytes[3] = x >> 24 & 0xFF;
+    bytes[4] = x >> 32 & 0xFF, bytes[5] = x >> 40 & 0xFF;
+    bytes[6] = x >> 48 & 0xFF, bytes[7] = x >> 56 & 0xFF;
+}
 
+// Converts a utf8 char to a hexadecimal number
+// If the character is invalid, it simply returns 0
 static uint8_t hex2num(const uint8_t hex) {
 	static const uint8_t table[] = {
 		['0'] = 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
@@ -63,6 +73,7 @@ static uint8_t hex2num(const uint8_t hex) {
 	return table[hex];
 }
 
+// Converts valid hex 4 digit strings (without prefix) to a uint32_t
 static uint32_t str2hex(const char *src) {
 	return (uint32_t)hex2num(src[0]) << 12
 		| (uint32_t)hex2num(src[1]) << 8
@@ -70,29 +81,50 @@ static uint32_t str2hex(const char *src) {
 		| (uint32_t)hex2num(src[3]);
 }
 
+// Returns the length of the json unicode escape sequence
+// Returns 0 if there was an error
+// Handles utf16 surrogates for code points above the BMP
+// Always writes to out
 static size_t hex2utf8(const char *src, char out[static const 4]) {
+	// Get the code point (or high surrogate if it is one)
 	const uint32_t hi = str2hex(src);
+
 	if (hi < 0x80) {
+		// Ascii char
 		out[0] = hi;
 		return 1;
 	} else if (hi < 0x800) {
+		// UTF-8 2 byte sequence
 		out[0] = 0xC0 | (hi >> 6);
 		out[1] = 0x80 | (hi & 0x3F);
 		return 2;
 	} else if (hi < 0xD800 || hi > 0xDFFF) {
+		// UTF-8 3 byte sequence (NOT in surrogate range)
 		out[0] = 0xE0 | (hi >> 12);
 		out[1] = 0x80 | (hi >> 6 & 0x3F);
 		out[2] = 0x80 | (hi & 0x3F);
 		return 3;
 	} else {
+		// This is a utf16 surrogate
+
+		// Check if we got the low surrogate first (big no no)
 		if (hi > 0xDBFF) return 0;
+
+		// Make sure that there is a \uXXXX after this one
 		if (src[4] != '\\' && src[5] != 'u') return 0;
 
+		// No need to check for eof since this will be a valid
+		// JSON string by definition of ejparse
 		const uint32_t lo = str2hex(src + 6);
+
+		// Make sure this codepoint is a low surrogate
 		if (lo < 0xDC00 || lo > 0xDFFF) return 0;
 
+		// Combine the two surrogates to get codepoint
 		const uint32_t final =
 			((hi - 0xD800) << 10) + (lo - 0xDC00) + 0x10000;
+
+		// Write 4-byte code point (no need for high level checking)
 		out[0] = 0xF0 | (final >> 18);
 		out[1] = 0x80 | (final >> 12 & 0x3F);
 		out[2] = 0x80 | (final >> 6 & 0x3F);
@@ -100,6 +132,17 @@ static size_t hex2utf8(const char *src, char out[static const 4]) {
 		return 4;
 	}
 }
+
+// State used for ejstr function and escape function
+typedef struct ejstr_state {
+	const char *src;	// Where we are in the source
+	char *out;		// Where we are in the output buffer
+	char *end;		// Last valid byte of the buffer
+	
+	// Length of the string in bytes irrespective of whether or not
+	// the output buffer is present or has already been filled
+	size_t len;
+} ejstr_state_t;
 
 // Main state for the parser (used by most parser functions)
 typedef struct state {
@@ -716,50 +759,126 @@ ejresult_t ejparse(const char *src, ejtok_t *t, size_t nt) {
 	};
 }
 
-static bool escape(const char **src, char **out,
-		char **end, size_t *len) {
-	if (*++*src != 'u') {
-		if (*out != *end) *(*out)++ = **src;
-		++*src, ++*len;
+// Returns whether or not the escape charcter is valid (usually is)
+// Updates state with the newly escaped character
+static bool escape(ejstr_state_t *state) {
+	// Check if its a normal escape charater
+	if (*++state->src != 'u') {
+		// Write out the byte if we can
+		if (state->out < state->end) *state->out++ = *state->src;
+
+		// Increment src ptr, len and exit early
+		++state->src, ++state->len;
 		return true;
 	}
 
-	char utf8[4];
-	const size_t u8len = hex2utf8(++*src, utf8);
+	// We are parsing a unicode escape char
+	char utf8[4];						// tmp buffer
+	const size_t u8len = hex2utf8(++state->src, utf8);	// parse escape
+	
 	if (u8len == 0) {
-		return 0;
-	} else if (*out + u8len < *end) {
-		char *tmp = utf8;
+		// It was an invalid escape, return error code
+		return false;
+	} else if (state->out + u8len < state->end) {
+		// We have enough buffer room to copy it over
+		char *tmp = utf8;		// Copy bytes over
 		switch (u8len) {
-		case 4: *(*out)++ = *tmp++;
-		case 3: *(*out)++ = *tmp++;
-		case 2: *(*out)++ = *tmp++;
-		case 1: *(*out)++ = *tmp++;
+		case 4: *state->out++ = *tmp++;
+		case 3: *state->out++ = *tmp++;
+		case 2: *state->out++ = *tmp++;
+		case 1: *state->out++ = *tmp++;
 		}
 	} else {
-		*end = *out;
+		// Don't have enough room, so make sure that no more bytes
+		// can be outputted.
+		state->end = state->out;
 	}
 
-	*src += u8len == 4 ? 6+4 : 4;
-	*len += u8len;
+	// Go past the unicode escape, and add the utf-8 sequence length
+	state->src += u8len == 4 ? 6+4 : 4;
+	state->len += u8len;
 	return true;
 }
 
+// Copies and escapes a json string/kv to a string buffer
+// Takes in json source, token, and the out buffer and out length
+// If out is non-null and outlen is greater than 0, it will write characters
+// until outlen-1 and then output a null-terminator meaning the output buffer
+// will always be null-terminated.
+// Returns length of what the would be string would be (including null
+// terminator so that length is always above 0 when there are no errors)
+// If the string contains an invalid utf-8 codepoint or surrogate, it will
+// return the length as 0 to signify error
 size_t ejstr(const char *src, char *out, const size_t outlen) {
-	char *end = outlen ? (out ? out + outlen - 1 : NULL) : out;
+	// Initialize the escaping/copying state
+	ejstr_state_t state = {
+		.src = src + 1,	// Skip '"', and where we are in the string
+		.out = out,	// Where we are in the output buffer
 
-	++src;
-	size_t len = 1;
-	while (*src != '"') {
-		if (*src == '\\') {
-			if (!escape(&src, &out, &end, &len)) return 0;
+		// Last valid char of the buffer
+		.end = outlen ? (out ? out + outlen - 1 : NULL) : out,
+		.len = 1,	// How long the string is (irrespective of buf)
+	};
+
+#if !EKJSON_NOBITWISE
+	// Do everything in chunks of 8 bytes
+	uint64_t probe = ldu64_unaligned(state.src);
+
+	// If we go over this, then we should go to the slow route
+	char *const end8 = outlen ? (out ? out + outlen - 8 : NULL) : out;
+
+	// Keep adding length and outputting to buffer until we find ending '"'
+	while (!hasvalue(probe, '"')) {
+		if (hasvalue(probe, '\\')) {
+			// No point in the slow headache of rewinding and doing
+			// stuff that way for escaping... Too slow without SIMD
+			break;
 		} else {
-			if (out < end) *out++ = *src;
-			++src, ++len;
+			if (state.out < end8) {
+				// Output 8 bytes
+				stu64_unaligned(state.out, probe);
+				// Skip past written data
+				state.out += 8;
+			} else if (state.out > state.end) {
+				// Create temporary src pointer
+				const char *tmp = state.src;
+
+				// Output 1 to 7 bytes
+				switch (state.end - state.out) {
+				case 7: *state.out++ = *tmp++;
+				case 6: *state.out++ = *tmp++;
+				case 5: *state.out++ = *tmp++;
+				case 4: *state.out++ = *tmp++;
+				case 3: *state.out++ = *tmp++;
+				case 2: *state.out++ = *tmp++;
+				case 1: *state.out++ = *tmp++;
+				}
+			}
+
+			// Add string length and skip past probed data
+			state.len += 8, state.src += 8;
+			// Get next 8-byte chunk
+			probe = ldu64_unaligned(state.src);
+		}
+	}
+#endif
+
+	// Do it byte by byte here
+	// Keep adding length and outputting to buffer until we find ending '"'
+	while (*state.src != '"') {
+		if (*state.src == '\\') {
+			if (!escape(&state)) return 0; // Checks for errors
+		} else {
+			// Output byte (if there is room left)
+			if (state.out < state.end) *state.out++ = *state.src;
+			++state.src, ++state.len; // 1 byte for len and src
 		}
 	}
 
-	if (out) *out = '\0';
-	return len;
+	// Add null terminator always if the user supplied a buffer
+	if (state.out) *state.out = '\0';
+
+	// Return what the string length is regardless of buffer length
+	return state.len;
 }
 
