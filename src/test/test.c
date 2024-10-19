@@ -583,6 +583,22 @@ static bool pass_ejstr_hell4(unsigned test) {
 	return !ejparse(hell4, t, arrlen(t)).err;
 }
 
+static char buf[1024*1024];
+extern const char hell5_escaped[], hell5_string[];
+extern size_t hell5_size;
+static bool pass_ejstr_hell5(unsigned test) {
+	if (ejstr(hell5_escaped, buf, sizeof(buf)) != hell5_size) return TEST_BAD;
+	//if (strncmp(buf, hell5_string, sizeof(buf)) != 0) return TEST_BAD;
+	for (int i = 0; buf[i]; i++) {
+		if (!buf[i] && !hell5_string[i]) return true;
+		if (buf[i] != hell5_string[i]) {
+			printf("\n%d\n", i);
+			break;
+		}
+	}
+	return true;
+}
+
 extern void unopt_strtest(volatile size_t *size,
 			const char *restrict a,
 			const char *restrict b);
@@ -592,19 +608,22 @@ static size_t byte_strlen(const char *str) {
 	return len;
 }
 
-extern const char speed_test_normal[], speed_test_quoted[], speed_test_utf[];
+extern const char speed_test_normal[], speed_test_quoted[],
+		speed_test_utf[], speed_test_script[];
 static bool test_ejstr_speed(unsigned test) {
 	volatile size_t _total_len = 0;
-	static const char *test_strings[3] = {
-		speed_test_normal, speed_test_quoted, speed_test_utf
+	static const char *test_strings[4] = {
+		speed_test_normal, speed_test_quoted,
+		speed_test_utf, speed_test_script,
 	};
-	static const char *test_names[3] = { "normal", "quotes", "utf" };
-	static char buf[16384];
+	static const char *test_names[4] = {
+		"normal", "quotes", "utf", "script"
+	};
 	const int niters = 50000;
-	double tps[3];
+	double tps[4];
 
 	printf("\n");
-	for (int i = 0; i < 3; i++) {
+	for (int i = 0; i < 4; i++) {
 		printf("starting speed test \"%s\"\n", test_names[i]);
 		const double len = (double)(strlen(test_strings[i]) + 1)
 			/ 1024.0 / 1024.0 / 1024.0;
@@ -641,7 +660,7 @@ static bool test_ejstr_speed(unsigned test) {
 		printf("ejstr   throughput: %.2f GB/s\n", tps[i]);
 	}
 
-	for (int i = 0; i < 3; i++) printf("%.2f,\t", tps[i]);
+	for (int i = 0; i < 4; i++) printf("%.2f,\t", tps[i]);
 	printf("\n");
 
 	return true;
@@ -777,6 +796,7 @@ static const test_t tests[] = {
 	TEST_ADD(pass_ejstr_hell2)
 	TEST_ADD(pass_ejstr_hell3)
 	TEST_ADD(pass_ejstr_hell4)
+	TEST_ADD(pass_ejstr_hell5)
 	TEST_PAD
 	TEST_ADD(test_ejstr_speed)
 };

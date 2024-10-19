@@ -765,7 +765,19 @@ static bool escape(ejstr_state_t *state) {
 	// Check if its a normal escape charater
 	if (*++state->src != 'u') {
 		// Write out the byte if we can
-		if (state->out < state->end) *state->out++ = *state->src;
+		if (state->out < state->end) {
+			switch (*state->src) {
+			case '"': *state->out++ = '"'; break;
+			case '\\': *state->out++ = '\\'; break;
+			case '/': *state->out++ = '/'; break;
+			case 'b': *state->out++ = '\b'; break;
+			case 'f': *state->out++ = '\f'; break;
+			case 'n': *state->out++ = '\n'; break;
+			case 'r': *state->out++ = '\r'; break;
+			case 't': *state->out++ = '\t'; break;
+			default: break;
+			}
+		}
 
 		// Increment src ptr, len and exit early
 		++state->src, ++state->len;
