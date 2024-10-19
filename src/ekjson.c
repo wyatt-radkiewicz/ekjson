@@ -904,41 +904,62 @@ size_t ejstr(const char *src, char *out, const size_t outlen) {
 // Renamed tok_start to src here since its used as the source pointer in this
 // implemenation
 bool ejcmp(const char *src, const char *cstr) {
+	// Skip past the first '"' at the start of string token
 	src++;
 
 #if !EKJSON_NO_BITWISE
+	// Initialize 8-byte probe
 	uint64_t probe = ldu64_unaligned(src);
 
+	// Continue comparing 8-byte chunks until we are less than 8 away from
+	// the end or we hit and escape
 	while (!hasvalue(probe, '"')) {
 		if (hasvalue(probe, '\\')) {
+			// We fall back to the sequential way of doing things
+			// when we see an escape. It's too slow without SIMD
 			break;
 		} else {
+			// Compare 8 bytes
 			if (probe != ldu64_unaligned(cstr)) return false;
-			src += 8, cstr += 8;
-			probe = ldu64_unaligned(src);
+			src += 8, cstr += 8;	// If successful, goto next 8
+			probe = ldu64_unaligned(src);	// Load this row of 8
 		}
 	}
 #endif
 
+	// Go byte by byte until we reach the end of the string
 	while (*src != '"') {
 		if (*src == '\\') {
+			// Escape this character
 			if (*++src == 'u') {
-				char buf[4];
+				// Write the utf8 bytes into a temporary buffer
+				char buf[4];	// Temporary buffer
 				const size_t len = hex2utf8(++src, buf);
-				if (len == 0
+
+				// Check to see if the next 32 bits, when
+				// masked off to fit the length of the
+				// outputted utf-8 are equal
+				if (len == 0	// Output len is 0 if error
 					|| ldu32_unaligned(buf) << len * 8
 					!= ldu32_unaligned(cstr) << len * 8) {
 					return false;
 				}
+				
+				// The bytes are equal so skip past the utf-8
+				// bytes in the c string and skip past the
+				// escape in the source string
 				cstr += len, src += len == 4 ? 10 : 4;
 			} else {
+				// Compare the next byte with the unescaped src
 				if (*cstr++ != unescape[*src++]) return false;
 			}
 		} else {
-			if (*src++ != *cstr++) return false;
+			if (*src++ != *cstr++) return false; // Simple compare
 		}
 	}
 
+	// Make sure the end of the string token is at the same place as the
+	// end of the c string
 	return *cstr == '\0';
 }
 

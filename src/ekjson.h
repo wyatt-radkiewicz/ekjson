@@ -9,7 +9,9 @@
 // when set to true
 #define EKJSON_SPACE_EFFICENT 0
 
-// When set, turns off 'bitwise' 64bit tricks
+// When set, turns off 'bitwise' 64bit tricks. This will for sure be better
+// for 32 bit systems without fast 64-bit operations and systems without
+// branch overhead (due to mis-predicts)
 #define EKJSON_NO_BITWISE 0
 
 // Max value depth that the json document can go.
