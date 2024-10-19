@@ -38,7 +38,12 @@
 	I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, \
 	I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, I,
 
-// Wrappers for loading u32/u64 on unaligned addresses
+// Wrappers for loading u16/u32/u64 on unaligned addresses
+static EKJSON_ALWAYS_INLINE uint16_t ldu16_unaligned(const void *const buf) {
+	const uint8_t *const bytes = buf;
+	return (uint16_t)bytes[0]
+		| (uint16_t)bytes[1] << 8;
+}
 static EKJSON_ALWAYS_INLINE uint32_t ldu32_unaligned(const void *const buf) {
 	const uint8_t *const bytes = buf;
 	return (uint32_t)bytes[0]
@@ -759,6 +764,14 @@ ejresult_t ejparse(const char *src, ejtok_t *t, size_t nt) {
 	};
 }
 
+// Maps all 1-byte escape sequences. Used in escape function and compare func
+static const uint8_t unescape[256] = {
+	['"'] = '"', ['\\'] = '\\',
+	['/'] = '/', ['b'] = '\b',
+	['f'] = '\f', ['n'] = '\n',
+	['r'] = '\r', ['t'] = '\t',
+};
+
 // Returns whether or not the escape charcter is valid (usually is)
 // Updates state with the newly escaped character
 static bool escape(ejstr_state_t *state) {
@@ -766,17 +779,8 @@ static bool escape(ejstr_state_t *state) {
 	if (*++state->src != 'u') {
 		// Write out the byte if we can
 		if (state->out < state->end) {
-			switch (*state->src) {
-			case '"': *state->out++ = '"'; break;
-			case '\\': *state->out++ = '\\'; break;
-			case '/': *state->out++ = '/'; break;
-			case 'b': *state->out++ = '\b'; break;
-			case 'f': *state->out++ = '\f'; break;
-			case 'n': *state->out++ = '\n'; break;
-			case 'r': *state->out++ = '\r'; break;
-			case 't': *state->out++ = '\t'; break;
-			default: break;
-			}
+			// Use escapes table to map to unescaped char
+			*state->out++ = unescape[*state->src];
 		}
 
 		// Increment src ptr, len and exit early
@@ -892,5 +896,49 @@ size_t ejstr(const char *src, char *out, const size_t outlen) {
 
 	// Return what the string length is regardless of buffer length
 	return state.len;
+}
+
+// Compares the string token to a normal c string, escaping characters as
+// needed and returning whether or not they are equal. Passing in null for
+// tok_start or cstr is undefined.
+// Renamed tok_start to src here since its used as the source pointer in this
+// implemenation
+bool ejcmp(const char *src, const char *cstr) {
+	src++;
+
+#if !EKJSON_NO_BITWISE
+	uint64_t probe = ldu64_unaligned(src);
+
+	while (!hasvalue(probe, '"')) {
+		if (hasvalue(probe, '\\')) {
+			break;
+		} else {
+			if (probe != ldu64_unaligned(cstr)) return false;
+			src += 8, cstr += 8;
+			probe = ldu64_unaligned(src);
+		}
+	}
+#endif
+
+	while (*src != '"') {
+		if (*src == '\\') {
+			if (*++src == 'u') {
+				char buf[4];
+				const size_t len = hex2utf8(++src, buf);
+				if (len == 0
+					|| ldu32_unaligned(buf) << len * 8
+					!= ldu32_unaligned(cstr) << len * 8) {
+					return false;
+				}
+				cstr += len, src += len == 4 ? 10 : 4;
+			} else {
+				if (*cstr++ != unescape[*src++]) return false;
+			}
+		} else {
+			if (*src++ != *cstr++) return false;
+		}
+	}
+
+	return *cstr == '\0';
 }
 

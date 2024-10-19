@@ -52,17 +52,19 @@ ejresult_t ejparse(const char *src, ejtok_t *t, size_t nt);
 // return the length as 0 to signify error
 size_t ejstr(const char *tok_start, char *out, size_t outlen);
 
-// Compares the string token to a normal c string
+// Compares the string token to a normal c string, escaping characters as
+// needed and returning whether or not they are equal. Passing in null for
+// tok_start or cstr is undefined.
 bool ejcmp(const char *tok_start, const char *cstr);
 
 // Returns the number token as a float
-double ejflt(const char *src, const ejtok_t t);
+double ejflt(const char *tok_start);
 
 // Returns the int token as an int
-int64_t ejint(const char *src, const ejtok_t t);
+int64_t ejint(const char *tok_start);
 
 // Returns whether the boolean is true or false
-bool ejbool(const char *src, const ejtok_t t);
+bool ejbool(const char *tok_start);
 
 #endif
 

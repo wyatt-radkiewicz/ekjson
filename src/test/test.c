@@ -599,6 +599,50 @@ static bool pass_ejstr_hell5(unsigned test) {
 	return true;
 }
 
+static bool pass_ejcmp1(unsigned test) {
+	return ejcmp("\"abcdef\"", "abcdef");
+}
+static bool pass_ejcmp2(unsigned test) {
+	return ejcmp("\"\\nabcdef\"", "\nabcdef");
+}
+static bool pass_ejcmp3(unsigned test) {
+	return ejcmp("\"abcdef\\t\"", "abcdef\t");
+}
+static bool pass_ejcmp4(unsigned test) {
+	return ejcmp("\"abc\\u00DAdef\"", "abc\u00DAdef");
+}
+static bool pass_ejcmp5(unsigned test) {
+	return ejcmp("\"a\"", "a");
+}
+static bool pass_ejcmp6(unsigned test) {
+	return ejcmp("\"\"", "");
+}
+static bool pass_ejcmp7(unsigned test) {
+	return ejcmp(hell1_escaped, hell1_string);
+}
+static bool pass_ejcmp8(unsigned test) {
+	return ejcmp(hell2_escaped, hell2_string);
+}
+static bool pass_ejcmp9(unsigned test) {
+	return ejcmp(hell5_escaped, hell5_string);
+}
+static bool pass_ejcmp10(unsigned test) {
+	return !ejcmp("\"a\"", "b");
+}
+static bool pass_ejcmp11(unsigned test) {
+	return !ejcmp("\"\\r\"", "r");
+}
+static bool pass_ejcmp12(unsigned test) {
+	return !ejcmp("\"\u00DA\"", "r");
+}
+static bool pass_ejcmp13(unsigned test) {
+	return !ejcmp("\"abcd\"", "abcdef");
+}
+static bool pass_ejcmp14(unsigned test) {
+	return !ejcmp("\"abcdef\"", "abcd");
+}
+
+// Speed tests
 extern void unopt_strtest(volatile size_t *size,
 			const char *restrict a,
 			const char *restrict b);
@@ -610,7 +654,9 @@ static size_t byte_strlen(const char *str) {
 
 extern const char speed_test_normal[], speed_test_quoted[],
 		speed_test_utf[], speed_test_script[];
-static bool test_ejstr_speed(unsigned test) {
+extern const char *const speed_str_normal, *const speed_str_quoted,
+		*const speed_str_utf, *const speed_str_script;
+static void test_ejstr_speed(void) {
 	volatile size_t _total_len = 0;
 	static const char *test_strings[4] = {
 		speed_test_normal, speed_test_quoted,
@@ -619,8 +665,12 @@ static bool test_ejstr_speed(unsigned test) {
 	static const char *test_names[4] = {
 		"normal", "quotes", "utf", "script"
 	};
+	const char *cmp_strings[4] = {
+		speed_str_normal, speed_str_quoted,
+		speed_str_utf, speed_str_script,
+	};
 	const int niters = 50000;
-	double tps[4];
+	double tps[2][4];
 
 	printf("\n");
 	for (int i = 0; i < 4; i++) {
@@ -656,16 +706,27 @@ static bool test_ejstr_speed(unsigned test) {
 		}
 		time = (double)(clock() - start) / CLOCKS_PER_SEC;
 		
-		tps[i] = len / (time / niters);
-		printf("ejstr   throughput: %.2f GB/s\n", tps[i]);
+		tps[0][i] = len / (time / niters);
+		printf("ejstr   throughput: %.2f GB/s\n", tps[0][i]);
+
+		// ejcmp
+		start = clock();
+		for (int n = 0; n < niters; n++) {
+			ejcmp(test_strings[i], cmp_strings[i]);
+		}
+		time = (double)(clock() - start) / CLOCKS_PER_SEC;
+		
+		tps[1][i] = len / (time / niters);
+		printf("ejcmp   throughput: %.2f GB/s\n", tps[1][i]);
 	}
 
-	for (int i = 0; i < 4; i++) printf("%.2f,\t", tps[i]);
-	printf("\n");
-
-	return true;
+	for (int f = 0; f < arrlen(tps); f++) {
+		for (int i = 0; i < arrlen(tps[f]); i++) {
+			printf("%.2f,\t", tps[f][i]);
+		}
+		printf("\n");
+	}
 }
-
 
 static const test_t tests[] = {
 	TEST_ADD(pass_nothing)
@@ -798,11 +859,51 @@ static const test_t tests[] = {
 	TEST_ADD(pass_ejstr_hell4)
 	TEST_ADD(pass_ejstr_hell5)
 	TEST_PAD
-	TEST_ADD(test_ejstr_speed)
+	TEST_ADD(pass_ejcmp1)
+	TEST_ADD(pass_ejcmp2)
+	TEST_ADD(pass_ejcmp3)
+	TEST_ADD(pass_ejcmp4)
+	TEST_ADD(pass_ejcmp5)
+	TEST_ADD(pass_ejcmp6)
+	TEST_ADD(pass_ejcmp7)
+	TEST_ADD(pass_ejcmp8)
+	TEST_ADD(pass_ejcmp9)
+	TEST_ADD(pass_ejcmp10)
+	TEST_ADD(pass_ejcmp11)
+	TEST_ADD(pass_ejcmp12)
+	TEST_ADD(pass_ejcmp13)
+	TEST_ADD(pass_ejcmp14)
 };
 
+void usage(void) {
+	printf("usage: \n");
+	printf("test [test | speed]\n");
+}
+
 int main(int argc, char **argv) {
-	return tests_run_foreach(NULL, tests, arrlen(tests), stdout) ? 0 : -1;
+	bool speed_test = false;
+
+	if (argc > 2) {
+		usage();
+		return 1;
+	}
+	if (argc == 2) {
+		if (strcmp(argv[1], "test") == 0) {
+			speed_test = false;
+		} else if (strcmp(argv[1], "speed") == 0) {
+			speed_test = true;
+		} else {
+			usage();
+			return 1;
+		}
+	}
+
+	int res = tests_run_foreach(NULL, tests, arrlen(tests), stdout)
+		? 0 : -1;
+	if (speed_test) {
+		test_ejstr_speed();
+	}
+	return res;
 }
 
 
