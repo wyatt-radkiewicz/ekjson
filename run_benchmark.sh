@@ -1,6 +1,6 @@
 #!/bin/bash
 
-make && ./build/test
+make rel && ./rel/test
 if [ $? != 0 ]; then
 	echo "tests/compilation failed"
 	exit

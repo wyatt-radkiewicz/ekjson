@@ -60,11 +60,11 @@
 	CHECK_END
 #define CHECK_FLOAT(_size, _num) \
 	CHECK_START \
-		CHECK_BASE(EJNUM, _size, 1) \
+		CHECK_BASE(EJFLT, _size, 1) \
 	CHECK_END
 #define CHECK_INT(_size, _num) \
 	CHECK_START \
-		CHECK_BASE(EJNUM, _size, 1) \
+		CHECK_BASE(EJINT, _size, 1) \
 	CHECK_END
 #define CHECK_STRING(_size, _len, _str) \
 	CHECK_START \
@@ -114,28 +114,28 @@ PASS_SETUP(array_floats, "[1.2,3.4,5.6]", 64)
 PASS_END
 PASS_SETUP(array_int, "[1]", 64)
 	CHECK_SIMPLE(EJARR, 1, 2)
-	CHECK_FLOAT(1, 1)
+	CHECK_INT(1, 1)
 PASS_END
 PASS_SETUP(array_ints, "[1,2,3]", 64)
 	CHECK_SIMPLE(EJARR, 1, 4)
-	CHECK_FLOAT(2, 1)
-	CHECK_FLOAT(2, 2)
-	CHECK_FLOAT(2, 3)
+	CHECK_INT(2, 1)
+	CHECK_INT(2, 2)
+	CHECK_INT(2, 3)
 PASS_END
 PASS_SETUP(array_matrix, "[[1,2,3],[4,5,6],[7,8,9]]", 64)
 	CHECK_SIMPLE(EJARR, 1, 13)
 	CHECK_SIMPLE(EJARR, 1, 4)
-	CHECK_FLOAT(2, 1)
-	CHECK_FLOAT(2, 2)
-	CHECK_FLOAT(3, 3)
+	CHECK_INT(2, 1)
+	CHECK_INT(2, 2)
+	CHECK_INT(3, 3)
 	CHECK_SIMPLE(EJARR, 1, 4)
-	CHECK_FLOAT(2, 4)
-	CHECK_FLOAT(2, 5)
-	CHECK_FLOAT(3, 6)
+	CHECK_INT(2, 4)
+	CHECK_INT(2, 5)
+	CHECK_INT(3, 6)
 	CHECK_SIMPLE(EJARR, 1, 4)
-	CHECK_FLOAT(2, 7)
-	CHECK_FLOAT(2, 8)
-	CHECK_FLOAT(3, 9)
+	CHECK_INT(2, 7)
+	CHECK_INT(2, 8)
+	CHECK_INT(3, 9)
 PASS_END
 PASS_SETUP(array_null, "[null]", 64)
 	CHECK_SIMPLE(EJARR, 1, 2)
@@ -151,7 +151,7 @@ PASS_SETUP(array_object, "[{\"a\":1}]", 64)
 	CHECK_SIMPLE(EJARR, 1, 4)
 	CHECK_SIMPLE(EJOBJ, 1, 3)
 	CHECK_KV(4, 2, "a")
-	CHECK_FLOAT(1, 1)
+	CHECK_INT(1, 1)
 PASS_END
 PASS_SETUP(array_object_empty, "[{}]", 64)
 	CHECK_SIMPLE(EJARR, 1, 2)
@@ -161,13 +161,13 @@ PASS_SETUP(array_objects, "[{\"a\":1},{\"b\":2},{\"c\":3}]", 64)
 	CHECK_SIMPLE(EJARR, 1, 10)
 	CHECK_SIMPLE(EJOBJ, 1, 3)
 	CHECK_KV(4, 2, "a")
-	CHECK_FLOAT(3, 1)
+	CHECK_INT(3, 1)
 	CHECK_SIMPLE(EJOBJ, 1, 3)
 	CHECK_KV(4, 2, "b")
-	CHECK_FLOAT(3, 2)
+	CHECK_INT(3, 2)
 	CHECK_SIMPLE(EJOBJ, 1, 3)
 	CHECK_KV(4, 2, "c")
-	CHECK_FLOAT(3, 3)
+	CHECK_INT(3, 3)
 PASS_END
 PASS_SETUP(array_string, "[\"abc\"]", 64)
 	CHECK_SIMPLE(EJARR, 1, 2)
@@ -187,18 +187,18 @@ PASS_SETUP(array_tensor, "[[[1,2],[3,4]],[[5,6],[7,8]]]", 64)
 	CHECK_SIMPLE(EJARR, 1, 15)
 	CHECK_SIMPLE(EJARR, 1, 7)
 	CHECK_SIMPLE(EJARR, 1, 3)
-	CHECK_FLOAT(2, 1)
-	CHECK_FLOAT(3, 2)
+	CHECK_INT(2, 1)
+	CHECK_INT(3, 2)
 	CHECK_SIMPLE(EJARR, 1, 3)
-	CHECK_FLOAT(2, 3)
-	CHECK_FLOAT(4, 4)
+	CHECK_INT(2, 3)
+	CHECK_INT(4, 4)
 	CHECK_SIMPLE(EJARR, 1, 7)
 	CHECK_SIMPLE(EJARR, 1, 3)
-	CHECK_FLOAT(2, 5)
-	CHECK_FLOAT(3, 6)
+	CHECK_INT(2, 5)
+	CHECK_INT(3, 6)
 	CHECK_SIMPLE(EJARR, 1, 3)
-	CHECK_FLOAT(2, 7)
-	CHECK_FLOAT(2, 8)
+	CHECK_INT(2, 7)
+	CHECK_INT(2, 8)
 PASS_END
 
 PASS_SETUP(bool_false, "false", 64)
@@ -642,6 +642,13 @@ static bool pass_ejcmp14(unsigned test) {
 	return !ejcmp("\"abcdef\"", "abcd");
 }
 
+static bool pass_ejbool1(unsigned test) {
+	return ejbool("true") == true;
+}
+static bool pass_ejbool2(unsigned test) {
+	return ejbool("false") == false;
+}
+
 // Speed tests
 extern void unopt_strtest(volatile size_t *size,
 			const char *restrict a,
@@ -873,6 +880,9 @@ static const test_t tests[] = {
 	TEST_ADD(pass_ejcmp12)
 	TEST_ADD(pass_ejcmp13)
 	TEST_ADD(pass_ejcmp14)
+	TEST_PAD
+	TEST_ADD(pass_ejbool1)
+	TEST_ADD(pass_ejbool2)
 };
 
 void usage(void) {
