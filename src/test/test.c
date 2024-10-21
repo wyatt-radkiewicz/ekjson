@@ -240,6 +240,12 @@ PASS_END
 PASS_SETUP(int_1, "1", 64)
 	CHECK_INT(0, 1)
 PASS_END
+PASS_SETUP(int_8digits, "12345678", 64)
+	CHECK_INT(0, 12345678)
+PASS_END
+PASS_SETUP(int_12digits, "123456789012", 64)
+	CHECK_INT(0, 123456789012)
+PASS_END
 PASS_SETUP(int_max, "9223372036854775807", 64)
 	CHECK_INT(0, 9223372036854775807ull)
 PASS_END
@@ -799,6 +805,8 @@ static const test_t tests[] = {
 	TEST_ADD(pass_int_neg1)
 	TEST_ADD(pass_int_0)
 	TEST_ADD(pass_int_1)
+	TEST_ADD(pass_int_8digits)
+	TEST_ADD(pass_int_12digits)
 	TEST_ADD(pass_int_max)
 	TEST_ADD(pass_int_min)
 	TEST_ADD(pass_int_supermax1)

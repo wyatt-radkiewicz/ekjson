@@ -977,7 +977,8 @@ static int parsedigits8(const char *const src, uint64_t *const out) {
 	const uint64_t wrong_bytes = ((val & hi) ^ 0x3030303030303030)
 				| (((lo & val) + 0x0606060606060606) & hi);
 	const uint64_t nright = EKJSON_CTZ(wrong_bytes) / 8;
-	val <<= (8 - nright) * 8;
+	if (nright) val <<= (8 - nright) * 8;
+	else return 0;
 	
 	val = (val & 0x0F0F0F0F0F0F0F0F) * (256 * 10 + 1) >> 8;
 	val = (val & 0x00FF00FF00FF00FF) * (65536 * 100 + 1) >> 16;
@@ -999,15 +1000,16 @@ int64_t ejint(const char *src) {
 
 	const bool neg = *src == '-';
 	int64_t sign = neg ? -1 : 1;
-	uint64_t ndigits = 0;
+	uint64_t ndigits;
 	src += neg;
 	uint64_t hi;
-	if ((ndigits += parsedigits8(src, &hi)) != 8) {
+	if ((ndigits = parsedigits8(src, &hi)) != 8) {
 		return (int64_t)hi * sign;
 	}
 	src += 8;
-	uint64_t mid;
-	if ((ndigits += parsedigits8(src, &mid)) != 16) {
+	uint64_t mid = 0;
+	if ((ndigits = parsedigits8(src, &mid)) != 8) {
+		hi *= powers[ndigits];
 		return (int64_t)(hi + mid) * sign;
 	}
 	bool atmax = false;
@@ -1025,9 +1027,8 @@ int64_t ejint(const char *src) {
 		}
 	}
 	src += 8;
-	uint64_t lo;
-	uint64_t d;
-	if ((ndigits += d = parsedigits8(src, &lo)) <= 19) {
+	uint64_t lo = 0;
+	if ((ndigits = parsedigits8(src, &lo)) <= 3) {
 		if (atmax) {
 			if (neg) {
 				if (lo > 808) goto overflow;
@@ -1035,7 +1036,7 @@ int64_t ejint(const char *src) {
 				if (lo > 807) goto overflow;
 			}
 		}
-		hi *= powers[d + 8], mid *= powers[d];
+		hi *= powers[ndigits + 8], mid *= powers[ndigits];
 		return (int64_t)(hi + mid + lo) * sign;
 	}
 	
