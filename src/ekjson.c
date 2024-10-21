@@ -38,6 +38,8 @@
 	I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, \
 	I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, I,
 
+#define EKJSON_CTZ __builtin_ctzll
+
 // Wrappers for loading u16/u32/u64 on unaligned addresses
 static EKJSON_ALWAYS_INLINE uint16_t ldu16_unaligned(const void *const buf) {
 	const uint8_t *const bytes = buf;
@@ -965,6 +967,80 @@ bool ejcmp(const char *src, const char *cstr) {
 	// Make sure the end of the string token is at the same place as the
 	// end of the c string
 	return *cstr == '\0';
+}
+
+// Parses up to 8 digits and writes it to the out pointer. It returns if there
+// was 8 digits in the source or not
+static int parsedigits8(const char *const src, uint64_t *const out) {
+	static const uint64_t hi = 0xF0F0F0F0F0F0F0F0, lo = 0x0F0F0F0F0F0F0F0F;
+	uint64_t val = ldu64_unaligned(src);
+	const uint64_t wrong_bytes = ((val & hi) ^ 0x3030303030303030)
+				| (((lo & val) + 0x0606060606060606) & hi);
+	const uint64_t nright = EKJSON_CTZ(wrong_bytes) / 8;
+	val <<= (8 - nright) * 8;
+	
+	val = (val & 0x0F0F0F0F0F0F0F0F) * (256 * 10 + 1) >> 8;
+	val = (val & 0x00FF00FF00FF00FF) * (65536 * 100 + 1) >> 16;
+	val = (val & 0x0000FFFF0000FFFF) * (4294967296 * 10000 + 1) >> 32;
+	*out = val;
+	return nright;
+}
+
+// Returns the number token parsed as an int64_t. If there are decimals, it
+// just returns the number truncated towards 0. If the number is outside of
+// the int64_t range, it will saturate it to the closest limit.
+int64_t ejint(const char *src) {
+	static uint64_t powers[16] = {
+		1, 10, 100, 1000, 10000, 100000, 1000000, 10000000,
+		100000000, 1000000000, 10000000000, 100000000000,
+		1000000000000, 10000000000000, 100000000000000,
+		1000000000000000
+	};
+
+	const bool neg = *src == '-';
+	int64_t sign = neg ? -1 : 1;
+	uint64_t ndigits = 0;
+	src += neg;
+	uint64_t hi;
+	if ((ndigits += parsedigits8(src, &hi)) != 8) {
+		return (int64_t)hi * sign;
+	}
+	src += 8;
+	uint64_t mid;
+	if ((ndigits += parsedigits8(src, &mid)) != 16) {
+		return (int64_t)(hi + mid) * sign;
+	}
+	bool atmax = false;
+	if (hi >= 92233720) {
+		if (hi > 92233720) {
+			goto overflow;
+		} else if (hi == 92233720) {
+			if (mid >= 36854775) {
+				if (mid > 36854775) {
+					goto overflow;
+				} else {
+					atmax = true;
+				}
+			}
+		}
+	}
+	src += 8;
+	uint64_t lo;
+	uint64_t d;
+	if ((ndigits += d = parsedigits8(src, &lo)) <= 19) {
+		if (atmax) {
+			if (neg) {
+				if (lo > 808) goto overflow;
+			} else {
+				if (lo > 807) goto overflow;
+			}
+		}
+		hi *= powers[d + 8], mid *= powers[d];
+		return (int64_t)(hi + mid + lo) * sign;
+	}
+	
+overflow:
+	return neg ? INT64_MIN : INT64_MAX;
 }
 
 // Returns whether the boolean is true or false

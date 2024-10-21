@@ -65,6 +65,13 @@
 #define CHECK_INT(_size, _num) \
 	CHECK_START \
 		CHECK_BASE(EJINT, _size, 1) \
+		const int64_t num = ejint(__src + toks[__idx].start); \
+		if (num != (int64_t)_num) { \
+			if (!dopass) return true; \
+			fprintf(stderr, "token %d num: %lld != %lld\n", \
+				__idx, num, (int64_t)_num); \
+			return false; \
+		} \
 	CHECK_END
 #define CHECK_STRING(_size, _len, _str) \
 	CHECK_START \
@@ -237,6 +244,30 @@ PASS_SETUP(int_max, "9223372036854775807", 64)
 	CHECK_INT(0, 9223372036854775807ull)
 PASS_END
 PASS_SETUP(int_min, "-9223372036854775808", 64)
+	CHECK_INT(0, -9223372036854775808ull)
+PASS_END
+PASS_SETUP(int_supermax1, "9223372036854885890", 64)
+	CHECK_INT(0, 9223372036854775807ull)
+PASS_END
+PASS_SETUP(int_supermax2, "9223372036854775808", 64)
+	CHECK_INT(0, 9223372036854775807ull)
+PASS_END
+PASS_SETUP(int_supermax3, "10223372036854885890", 64)
+	CHECK_INT(0, 9223372036854775807ull)
+PASS_END
+PASS_SETUP(int_supermax4, "1123412349182481237491230223372036854885890", 64)
+	CHECK_INT(0, 9223372036854775807ull)
+PASS_END
+PASS_SETUP(int_supermin1, "-9223372036854775809", 64)
+	CHECK_INT(0, -9223372036854775808ull)
+PASS_END
+PASS_SETUP(int_supermin2, "-9223372036854775809", 64)
+	CHECK_INT(0, -9223372036854775808ull)
+PASS_END
+PASS_SETUP(int_supermin3, "-10223372036954775809", 64)
+	CHECK_INT(0, -9223372036854775808ull)
+PASS_END
+PASS_SETUP(int_supermin4, "-10234912341723491283410223372036954775809", 64)
 	CHECK_INT(0, -9223372036854775808ull)
 PASS_END
 
@@ -770,6 +801,14 @@ static const test_t tests[] = {
 	TEST_ADD(pass_int_1)
 	TEST_ADD(pass_int_max)
 	TEST_ADD(pass_int_min)
+	TEST_ADD(pass_int_supermax1)
+	TEST_ADD(pass_int_supermax2)
+	TEST_ADD(pass_int_supermax3)
+	TEST_ADD(pass_int_supermax4)
+	TEST_ADD(pass_int_supermin1)
+	TEST_ADD(pass_int_supermin2)
+	TEST_ADD(pass_int_supermin3)
+	TEST_ADD(pass_int_supermin4)
 	TEST_PAD
 	TEST_ADD(pass_object_array)
 	TEST_ADD(pass_object_array_object)
@@ -799,8 +838,6 @@ static const test_t tests[] = {
 	TEST_ADD(fail_bool_false)
 	TEST_ADD(fail_bool_true)
 	TEST_PAD
-	//TEST_ADD(fail_float_max)
-	//TEST_ADD(fail_float_min)
 	TEST_ADD(fail_float_dot_after)
 	TEST_ADD(fail_float_dot_before)
 	TEST_ADD(fail_float_leading_zeros)
@@ -809,9 +846,6 @@ static const test_t tests[] = {
 	TEST_ADD(fail_float_exponent_sign)
 	TEST_ADD(fail_float_a)
 	TEST_PAD
-	//TEST_ADD(fail_int_max)
-	//TEST_ADD(fail_int_min)
-	//TEST_ADD(fail_int_dot)
 	TEST_ADD(fail_int_a)
 	TEST_PAD
 	TEST_ADD(fail_string_missing_begin_quote)
