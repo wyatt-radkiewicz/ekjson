@@ -971,77 +971,51 @@ bool ejcmp(const char *src, const char *cstr) {
 
 // Parses up to 8 digits and writes it to the out pointer. It returns if there
 // was 8 digits in the source or not
-static int parsedigits8(const char *const src, uint64_t *const out) {
+static int parsedigits8(const char *const src, int64_t *const out) {
 	static const uint64_t hi = 0xF0F0F0F0F0F0F0F0, lo = 0x0F0F0F0F0F0F0F0F;
+
 	uint64_t val = ldu64_unaligned(src);
+
 	const uint64_t wrong_bytes = ((val & hi) ^ 0x3030303030303030)
 				| (((lo & val) + 0x0606060606060606) & hi);
-	const uint64_t nright = EKJSON_CTZ(wrong_bytes) / 8;
-	if (nright) val <<= (8 - nright) * 8;
-	else return 0;
+	const uint64_t nright = wrong_bytes ? EKJSON_CTZ(wrong_bytes) / 8 : 8;
+
+	val <<= (8 - nright) * 8;
+	val &= nright ? ~0ull : 0;
 	
 	val = (val & 0x0F0F0F0F0F0F0F0F) * (256 * 10 + 1) >> 8;
 	val = (val & 0x00FF00FF00FF00FF) * (65536 * 100 + 1) >> 16;
 	val = (val & 0x0000FFFF0000FFFF) * (4294967296 * 10000 + 1) >> 32;
 	*out = val;
+
 	return nright;
 }
+
+
 
 // Returns the number token parsed as an int64_t. If there are decimals, it
 // just returns the number truncated towards 0. If the number is outside of
 // the int64_t range, it will saturate it to the closest limit.
 int64_t ejint(const char *src) {
-	static uint64_t powers[16] = {
-		1, 10, 100, 1000, 10000, 100000, 1000000, 10000000,
-		100000000, 1000000000, 10000000000, 100000000000,
-		1000000000000, 10000000000000, 100000000000000,
-		1000000000000000
+	static uint64_t powers[9] = {
+		1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000,
 	};
 
-	const bool neg = *src == '-';
-	int64_t sign = neg ? -1 : 1;
-	uint64_t ndigits;
-	src += neg;
-	uint64_t hi;
-	if ((ndigits = parsedigits8(src, &hi)) != 8) {
-		return (int64_t)hi * sign;
-	}
+	int64_t sign = *src == '-' ? -1 : 1, x, n, tmp;
+	src += *src == '-';
+	if (parsedigits8(src, &x) < 8) return x * sign;
 	src += 8;
-	uint64_t mid = 0;
-	if ((ndigits = parsedigits8(src, &mid)) != 8) {
-		hi *= powers[ndigits];
-		return (int64_t)(hi + mid) * sign;
-	}
-	bool atmax = false;
-	if (hi >= 92233720) {
-		if (hi > 92233720) {
-			goto overflow;
-		} else if (hi == 92233720) {
-			if (mid >= 36854775) {
-				if (mid > 36854775) {
-					goto overflow;
-				} else {
-					atmax = true;
-				}
-			}
-		}
-	}
+	n = parsedigits8(src, &tmp);
+	x = (x * powers[n] + tmp) * sign;
+	if (n < 8) return x;
 	src += 8;
-	uint64_t lo = 0;
-	if ((ndigits = parsedigits8(src, &lo)) <= 3) {
-		if (atmax) {
-			if (neg) {
-				if (lo > 808) goto overflow;
-			} else {
-				if (lo > 807) goto overflow;
-			}
-		}
-		hi *= powers[ndigits + 8], mid *= powers[ndigits];
-		return (int64_t)(hi + mid + lo) * sign;
+	n = parsedigits8(src, &tmp);
+	if (__builtin_smulll_overflow(x, powers[n], &x)
+		|| __builtin_saddll_overflow(x, sign * tmp, &x)) {
+		return sign == -1 ? INT64_MIN : INT64_MAX;
+	} else {
+		return x;
 	}
-	
-overflow:
-	return neg ? INT64_MIN : INT64_MAX;
 }
 
 // Returns whether the boolean is true or false

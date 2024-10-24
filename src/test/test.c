@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
@@ -247,34 +248,34 @@ PASS_SETUP(int_12digits, "123456789012", 64)
 	CHECK_INT(0, 123456789012)
 PASS_END
 PASS_SETUP(int_max, "9223372036854775807", 64)
-	CHECK_INT(0, 9223372036854775807ull)
+	CHECK_INT(0, INT64_MAX)
 PASS_END
 PASS_SETUP(int_min, "-9223372036854775808", 64)
-	CHECK_INT(0, -9223372036854775808ull)
+	CHECK_INT(0, INT64_MIN)
 PASS_END
 PASS_SETUP(int_supermax1, "9223372036854885890", 64)
-	CHECK_INT(0, 9223372036854775807ull)
+	CHECK_INT(0, INT64_MAX)
 PASS_END
 PASS_SETUP(int_supermax2, "9223372036854775808", 64)
-	CHECK_INT(0, 9223372036854775807ull)
+	CHECK_INT(0, INT64_MAX)
 PASS_END
 PASS_SETUP(int_supermax3, "10223372036854885890", 64)
-	CHECK_INT(0, 9223372036854775807ull)
+	CHECK_INT(0, INT64_MAX)
 PASS_END
 PASS_SETUP(int_supermax4, "1123412349182481237491230223372036854885890", 64)
-	CHECK_INT(0, 9223372036854775807ull)
+	CHECK_INT(0, INT64_MAX)
 PASS_END
 PASS_SETUP(int_supermin1, "-9223372036854775809", 64)
-	CHECK_INT(0, -9223372036854775808ull)
+	CHECK_INT(0, INT64_MIN)
 PASS_END
 PASS_SETUP(int_supermin2, "-9223372036854775809", 64)
-	CHECK_INT(0, -9223372036854775808ull)
+	CHECK_INT(0, INT64_MIN)
 PASS_END
 PASS_SETUP(int_supermin3, "-10223372036954775809", 64)
-	CHECK_INT(0, -9223372036854775808ull)
+	CHECK_INT(0, INT64_MIN)
 PASS_END
 PASS_SETUP(int_supermin4, "-10234912341723491283410223372036954775809", 64)
-	CHECK_INT(0, -9223372036854775808ull)
+	CHECK_INT(0, INT64_MIN)
 PASS_END
 
 PASS_SETUP(object_array, "{\"abc\":[1,2,3]}", 64)
@@ -772,6 +773,59 @@ static void test_ejstr_speed(void) {
 	}
 }
 
+static void test_ejint_speed(void) {
+	static const char *const strings[] = {
+		"0", "-1", "1234", "-1234", "12345678", "-12345678",
+		"9223372036854775807", "-9223372036854775808",
+		"9223372036854775900", "-9223372036854775900",
+	};
+	static const int64_t numbers[] = {
+		0, -1, 1234, -1234, 12345678, -12345678,
+		INT64_MAX, INT64_MIN, INT64_MAX, INT64_MIN,
+	};
+
+	static const int niters = 10000000;
+
+	// Calculate number of bytes
+	double ngigs = 0;
+	for (int j = 0; j < arrlen(numbers); j++) ngigs += strlen(strings[j]);
+	ngigs *= niters;
+	ngigs /= 1024 * 1024 * 1024;
+
+	// test functions
+	clock_t start;
+	double time;
+	printf("\n\nejint tests\n");
+
+	// test strtoll
+	start = clock();
+	for (int i = 0; i < niters; i++) {
+		for (int j = 0; j < arrlen(numbers); j++) {
+			if (strtoll(strings[j], NULL, 10) != numbers[j]) {
+				printf("strtoll error i %d j %d.\n", i, j);
+				return;
+			}
+		}
+	}
+	time = (double)(clock() - start) / (double)CLOCKS_PER_SEC;
+	printf("strtoll %d iters time (s): %.4f\n", niters, time);
+	printf("strtoll throughput (GB/s): %.2f\n", ngigs / time);
+
+	// test ejint
+	start = clock();
+	for (int i = 0; i < niters; i++) {
+		for (int j = 0; j < arrlen(numbers); j++) {
+			if (ejint(strings[j]) != numbers[j]) {
+				printf("ejint error i %d j %d.\n", i, j);
+				return;
+			}
+		}
+	}
+	time = (double)(clock() - start) / (double)CLOCKS_PER_SEC;
+	printf("ejint %d iters time (s): %.4f\n", niters, time);
+	printf("ejint throughput (GB/s): %.2f\n", ngigs / time);
+}
+
 static const test_t tests[] = {
 	TEST_ADD(pass_nothing)
 	TEST_PAD
@@ -953,7 +1007,8 @@ int main(int argc, char **argv) {
 	int res = tests_run_foreach(NULL, tests, arrlen(tests), stdout)
 		? 0 : -1;
 	if (speed_test) {
-		test_ejstr_speed();
+		//test_ejstr_speed();
+		test_ejint_speed();
 	}
 	return res;
 }
