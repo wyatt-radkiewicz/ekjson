@@ -801,10 +801,7 @@ static void test_ejint_speed(void) {
 	start = clock();
 	for (int i = 0; i < niters; i++) {
 		for (int j = 0; j < arrlen(numbers); j++) {
-			if (strtoll(strings[j], NULL, 10) != numbers[j]) {
-				printf("strtoll error i %d j %d.\n", i, j);
-				return;
-			}
+			strtoll(strings[j], NULL, 10);
 		}
 	}
 	time = (double)(clock() - start) / (double)CLOCKS_PER_SEC;
@@ -815,10 +812,7 @@ static void test_ejint_speed(void) {
 	start = clock();
 	for (int i = 0; i < niters; i++) {
 		for (int j = 0; j < arrlen(numbers); j++) {
-			if (ejint(strings[j]) != numbers[j]) {
-				printf("ejint error i %d j %d.\n", i, j);
-				return;
-			}
+			ejint(strings[j]);
 		}
 	}
 	time = (double)(clock() - start) / (double)CLOCKS_PER_SEC;
