@@ -1,4 +1,5 @@
 build/
 rel/
 dbg/
+./run_benchmark.sh
 
