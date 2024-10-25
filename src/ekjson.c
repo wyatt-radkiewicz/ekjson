@@ -26,6 +26,7 @@
 #define hasless(x,n) (((x)-~0UL/255*(n))&~(x)&~0UL/255*128)
 #endif
 
+#if !EKJSON_SPACE_EFFICIENT // No big tables in space efficient mode
 // Used to make tables slightly smaller since everything after the ascii range
 // is treated the same since it needs to be valid UTF-8 for ekjson
 #define FILLCODESPACE(I) \
@@ -37,22 +38,36 @@
 	I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, \
 	I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, \
 	I, I, I, I, I, I, I, I, I, I, I, I, I, I, I, I,
+#endif
 
-#define EKJSON_CTZ __builtin_ctzll
+// Bit trick functions and macros
+#if !EKJSON_NO_BITWISE
+
+// Bitwise operations
+#if __GNUC__ // Implement using GNU compiler compatible extensions
+// Counts the number of trailing zeros in the number (starts from 0th bit)
+#define ctz(x) _Generic(x, \
+	unsigned long long: __builtin_ctzll(x), \
+	unsigned long: __builtin_ctzl(x), \
+	unsigned int: __builtin_ctz(x))
+#else // Generic compiler implementations of these bitwise functions
+// Counts the number of trailing zeros in the number (starts from 0th bit)
+static EKJSON_ALWAYS_INLINE uint64_t ctz(uint64_t x) {
+	x &= -x;	// Isolate the first 1 so we can get its position
+	uint64_t n = 0;	// Number of trailing zeros
+	
+	// Divide and concore approach
+	n += x & 0xFFFFFFFF00000000 ? 32 : 0;
+	n += x & 0xFFFF0000FFFF0000 ? 16 : 0;
+	n += x & 0xFF00FF00FF00FF00 ? 8 : 0;
+	n += x & 0xF0F0F0F0F0F0F0F0 ? 4 : 0;
+	n += x & 0xCCCCCCCCCCCCCCCC ? 2 : 0;
+	n += x & 0xAAAAAAAAAAAAAAAA ? 1 : 0;
+	return n;
+}
+#endif // __GNUC__
 
 // Wrappers for loading u16/u32/u64 on unaligned addresses
-static EKJSON_ALWAYS_INLINE uint16_t ldu16_unaligned(const void *const buf) {
-	const uint8_t *const bytes = buf;
-	return (uint16_t)bytes[0]
-		| (uint16_t)bytes[1] << 8;
-}
-static EKJSON_ALWAYS_INLINE uint32_t ldu32_unaligned(const void *const buf) {
-	const uint8_t *const bytes = buf;
-	return (uint32_t)bytes[0]
-		| (uint32_t)bytes[1] << 8
-		| (uint32_t)bytes[2] << 16
-		| (uint32_t)bytes[3] << 24;
-}
 static EKJSON_ALWAYS_INLINE uint64_t ldu64_unaligned(const void *const buf) {
 	const uint8_t *const bytes = buf;
 	return (uint64_t)bytes[0] | (uint64_t)bytes[1] << 8
@@ -68,6 +83,44 @@ static EKJSON_ALWAYS_INLINE void stu64_unaligned(void *const buf,
     bytes[4] = x >> 32 & 0xFF, bytes[5] = x >> 40 & 0xFF;
     bytes[6] = x >> 48 & 0xFF, bytes[7] = x >> 56 & 0xFF;
 }
+#endif // EKJSON_NO_BITWISE
+
+// Load unsigned 32 bit value on an unaligned address
+static EKJSON_ALWAYS_INLINE uint32_t ldu32_unaligned(const void *const buf) {
+	const uint8_t *const bytes = buf;
+	return (uint32_t)bytes[0]
+		| (uint32_t)bytes[1] << 8
+		| (uint32_t)bytes[2] << 16
+		| (uint32_t)bytes[3] << 24;
+}
+
+// Overflow detecting math ops
+#if __GNUC__
+// Returns true if the signed addition overflowed or underflowed
+#define add_overflow(x, y, out) _Generic(x + y, \
+	long long: __builtin_saddll_overflow(x, y, (long long *)out), \
+	long: __builtin_saddl_overflow(x, y, (long *)out), \
+	int: __builtin_sadd_overflow(x, y, (int *)out))
+// Returns true if the signed multiplication overflowed or underflowed
+#define mul_overflow(x, y, out) _Generic(x + y, \
+	long long: __builtin_smulll_overflow(x, y, (long long *)out), \
+	long: __builtin_smull_overflow(x, y, (long *)out), \
+	int: __builtin_smul_overflow(x, y, (int *)out))
+#else // Generic implementations
+static EKJSON_ALWAYS_INLINE bool add_overflow(int64_t x, int64_t y,
+						int64_t *out) {
+	*out = x + y;
+	return x > 0 && y > INT64_MAX - x || x < 0 && y < INT64_MIN - x;
+}
+static EKJSON_ALWAYS_INLINE bool mul_overflow(int64_t x, int64_t y,
+						int64_t *out) {
+	*out = x * y;
+	y = y < 0 ? -y : y;
+	return x > 0 && x > INT64_MAX / y || x < 0 && x < INT64_MIN / y;
+}
+#endif // __GNUC__
+
+// Unicode escape helper functions
 
 // Converts a utf8 char to a hexadecimal number
 // If the character is invalid, it simply returns 0
@@ -348,11 +401,11 @@ static EKJSON_INLINE ejtok_t *number(state_t *const state) {
 		{ 10,  9,  3,  3,  4,  6,  9 }, // Digits
 
 		{  9,  9,  5,  5,  9,  9,  9 }, // Fraction (first part)
-		{ 10,  9,  5,  5,  9,  6,  9 }, // Fraction (second part)
+		{ 11,  9,  5,  5,  9,  6,  9 }, // Fraction (second part)
 
 		{  9,  9,  7,  7,  9,  9,  7 }, // Exponent (+/-)
 		{  9,  9,  8,  8,  9,  9,  9 }, // Exponent (first digit)
-		{ 10,  9,  8,  8,  9,  9,  9 }, // Exponent (rest of digits)
+		{ 11,  9,  8,  8,  9,  9,  9 }, // Exponent (rest of digits)
 	};
 #else
 	// Same kind of table as described in the string parsing function
@@ -842,7 +895,7 @@ size_t ejstr(const char *src, char *out, const size_t outlen) {
 		.len = 1,	// How long the string is (irrespective of buf)
 	};
 
-#if !EKJSON_NOBITWISE
+#if !EKJSON_NO_BITWISE
 	// Do everything in chunks of 8 bytes
 	uint64_t probe = ldu64_unaligned(state.src);
 
@@ -969,53 +1022,117 @@ bool ejcmp(const char *src, const char *cstr) {
 	return *cstr == '\0';
 }
 
-// Parses up to 8 digits and writes it to the out pointer. It returns if there
-// was 8 digits in the source or not
+#if !EKJSON_NO_BITWISE
+// Parses up to 8 digits and writes it to the out pointer. It how many of the
+// 8 bytes in this part of the string make up the number starting at the string
 static int parsedigits8(const char *const src, int64_t *const out) {
-	static const uint64_t hi = 0xF0F0F0F0F0F0F0F0, lo = 0x0F0F0F0F0F0F0F0F;
+	// Load up 8 bytes of the source and set default amount of right bytes
+	// A 'right' byte is a byte that is a digit between 0 - 9
+	uint64_t val = ldu64_unaligned(src), nright = 8;
 
-	uint64_t val = ldu64_unaligned(src);
+	// The high nibble of each byte that is not between 0-9 is set
+	const uint64_t wrong_bytes = (val ^ 0x3030303030303030)
+		+ 0x0606060606060606 & 0xF0F0F0F0F0F0F0F0;
 
-	const uint64_t wrong_bytes = ((val & hi) ^ 0x3030303030303030)
-				| (((lo & val) + 0x0606060606060606) & hi);
-	const uint64_t nright = wrong_bytes ? EKJSON_CTZ(wrong_bytes) / 8 : 8;
+	// Skip the shifting code if there are no wrong bytes. Also we do this
+	// because getting the leading zero count on 0 depends on what
+	// architecture you're specifically on
+	if (!wrong_bytes) goto convert;
 
+	// The index of the first wrong byte is the number of right bytes
+	// Due to the UB of shifting by the int width, exit early here.
+	// It also doubles up as an early exit optimization
+	if (!(nright = ctz(wrong_bytes) / 8)) {
+		*out = 0;
+		return 0;
+	}
+
+	// Shift out the invalid bytes and since the conversion down here only
+	// works when the msb is the ones place digit, shift the ones place
+	// to the msb
 	val <<= (8 - nright) * 8;
-	val &= nright ? ~0ull : 0;
-	
-	val = (val & 0x0F0F0F0F0F0F0F0F) * (256 * 10 + 1) >> 8;
-	val = (val & 0x00FF00FF00FF00FF) * (65536 * 100 + 1) >> 16;
-	val = (val & 0x0000FFFF0000FFFF) * (4294967296 * 10000 + 1) >> 32;
-	*out = val;
 
+convert:
+	// Convert the chars in val to a digit. Found this at this amazing talk
+	// https://lemire.me/en/talk/gosystems2020/
+	// This is also a variation of the algorithm found here:
+	// https://kholdstare.github.io/technical/2020/05/26/faster-integer-parsing.html
+	val = (val & 0x0F0F0F0F0F0F0F0F) * (0x100 * 10 + 1) >> 8;
+	val = (val & 0x00FF00FF00FF00FF) * (0x10000 * 100 + 1) >> 16;
+	val = (val & 0x0000FFFF0000FFFF) * (0x100000000 * 10000 + 1) >> 32;
+	*out = val;
 	return nright;
 }
-
-
+#endif
 
 // Returns the number token parsed as an int64_t. If there are decimals, it
 // just returns the number truncated towards 0. If the number is outside of
 // the int64_t range, it will saturate it to the closest limit.
 int64_t ejint(const char *src) {
-	static uint64_t powers[9] = {
+#if EKJSON_NO_BITWISE
+	// Get the sign of the number and skip the negative char if nessesary
+	int64_t sign = *src == '-' ? -1 : 1, x = 0;
+	src += *src == '-';
+
+	// Loop through all the digits
+	while (*src >= '0' && *src <= '9') {
+		const int64_t d = *src++ - '0'; // Convert char to number
+
+		// Shift current value up by a decimal place
+		if (mul_overflow(x, 10, &x)) goto overflow; // Check overflow
+
+		// Add the new ones place we found
+		if (add_overflow(x, d * sign, &x)) goto overflow;
+	}
+
+	return x;
+overflow: // Check are sign to see what limit to saturate to
+	return sign == -1 ? INT64_MIN : INT64_MAX;
+#else
+	// Precalculate all the powers of 10 needed
+	static const int64_t pows[9] = {
 		1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000,
 	};
 
-	int64_t sign = *src == '-' ? -1 : 1, x, n, tmp;
-	src += *src == '-';
-	if (parsedigits8(src, &x) < 8) return x * sign;
-	src += 8;
-	n = parsedigits8(src, &tmp);
-	x = (x * powers[n] + tmp) * sign;
-	if (n < 8) return x;
-	src += 8;
-	n = parsedigits8(src, &tmp);
-	if (__builtin_smulll_overflow(x, powers[n], &x)
-		|| __builtin_saddll_overflow(x, sign * tmp, &x)) {
+	// Get the sign of the number
+	const int64_t sign = *src == '-' ? -1 : 1;
+	int64_t x, tmp; // Our num. we are making, and current number bit (tmp)
+	int n;	// The number of right chars in the 8-byte sequence we parsed
+
+	src += *src == '-';		// Skip the negative char if nessesary
+	
+	// Parse first 1-8 bytes of the number. If the number is 7 bytes or
+	// less, then we can be sure that we are done.
+	if (parsedigits8(src, &x) < 8) {
+		return x * sign;	// Make sure to apply sign
+	}
+
+	// Parse next 8 byte section (this also accounts for the case that
+	// the number is truely a 8 byte number. So this section might have
+	// no number in it at all). We also apply the sign in this section
+	src += 8;			// Skip past the 8 bytes we parsed
+	n = parsedigits8(src, &tmp);	// Put next 8 bytes into tmp
+	
+	// Make 'room' for the new digits we are adding by shifting the old
+	// ones by n number of decimal places
+	x *= pows[n] * sign;		// Apply sign
+	x += tmp * sign; // Add the numbers we parsed and apply sign to them
+	
+	if (n < 8) return x; // Return if we're sure we're at the end
+
+	// Since int64_t can hold 16 digit values easily, we have to now check
+	// for overflow since we're going over that.
+	src += 8;			// Skip past the 8 bytes we parsed
+	n = parsedigits8(src, &tmp);	// Put next 8 bytes into tmp
+	
+	// Do the same as above but check if we overflowed
+	if (mul_overflow(x, pows[n], &x) || add_overflow(x, sign * tmp, &x)) {
+		// Saturate to the limit corresponding to the sign
 		return sign == -1 ? INT64_MIN : INT64_MAX;
 	} else {
-		return x;
+		return x;	// Otherwise our x is already good
 	}
+#endif
 }
 
 // Returns whether the boolean is true or false

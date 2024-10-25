@@ -247,6 +247,9 @@ PASS_END
 PASS_SETUP(int_12digits, "123456789012", 64)
 	CHECK_INT(0, 123456789012)
 PASS_END
+PASS_SETUP(int_14digits, "12345678901234", 64)
+	CHECK_INT(0, 12345678901234)
+PASS_END
 PASS_SETUP(int_max, "9223372036854775807", 64)
 	CHECK_INT(0, INT64_MAX)
 PASS_END
@@ -784,11 +787,11 @@ static void test_ejint_speed(void) {
 		INT64_MAX, INT64_MIN, INT64_MAX, INT64_MIN,
 	};
 
-	static const int niters = 10000000;
+	static const int niters = 10000000, nums = 10;
 
 	// Calculate number of bytes
 	double ngigs = 0;
-	for (int j = 0; j < arrlen(numbers); j++) ngigs += strlen(strings[j]);
+	for (int j = 0; j < nums; j++) ngigs += strlen(strings[j]);
 	ngigs *= niters;
 	ngigs /= 1024 * 1024 * 1024;
 
@@ -800,24 +803,28 @@ static void test_ejint_speed(void) {
 	// test strtoll
 	start = clock();
 	for (int i = 0; i < niters; i++) {
-		for (int j = 0; j < arrlen(numbers); j++) {
+		for (int j = 0; j < nums; j++) {
 			strtoll(strings[j], NULL, 10);
 		}
 	}
 	time = (double)(clock() - start) / (double)CLOCKS_PER_SEC;
 	printf("strtoll %d iters time (s): %.4f\n", niters, time);
 	printf("strtoll throughput (GB/s): %.2f\n", ngigs / time);
+	printf("strtoll throughput (millions N/s): %.2f\n",
+		((double)(niters * nums) / 1000000.0) / time);
 
 	// test ejint
 	start = clock();
 	for (int i = 0; i < niters; i++) {
-		for (int j = 0; j < arrlen(numbers); j++) {
+		for (int j = 0; j < nums; j++) {
 			ejint(strings[j]);
 		}
 	}
 	time = (double)(clock() - start) / (double)CLOCKS_PER_SEC;
 	printf("ejint %d iters time (s): %.4f\n", niters, time);
 	printf("ejint throughput (GB/s): %.2f\n", ngigs / time);
+	printf("ejint throughput (millions N/s): %.2f\n",
+		((double)(niters * nums) / 1000000.0) / time);
 }
 
 static const test_t tests[] = {
@@ -855,6 +862,7 @@ static const test_t tests[] = {
 	TEST_ADD(pass_int_1)
 	TEST_ADD(pass_int_8digits)
 	TEST_ADD(pass_int_12digits)
+	TEST_ADD(pass_int_14digits)
 	TEST_ADD(pass_int_max)
 	TEST_ADD(pass_int_min)
 	TEST_ADD(pass_int_supermax1)
