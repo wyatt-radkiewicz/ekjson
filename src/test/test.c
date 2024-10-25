@@ -1009,7 +1009,7 @@ int main(int argc, char **argv) {
 	int res = tests_run_foreach(NULL, tests, arrlen(tests), stdout)
 		? 0 : -1;
 	if (speed_test) {
-		//test_ejstr_speed();
+		test_ejstr_speed();
 		test_ejint_speed();
 	}
 	return res;
