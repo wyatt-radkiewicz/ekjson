@@ -581,7 +581,7 @@ static bool pass_ejstr_overflow1(unsigned test) {
 	char buf[4];
 	const size_t len = ejstr("\"abcdef\"", buf, sizeof(buf));
 	if (len != 7) return TEST_BAD;
-	if (strnlen(buf, 100) != 3) return TEST_BAD;
+	if (strnlen(buf, sizeof(buf)) != 3) return TEST_BAD;
 	if (strcmp(buf, "abc") != 0) return TEST_BAD;
 	return true;
 }
@@ -589,7 +589,7 @@ static bool pass_ejstr_overflow2(unsigned test) {
 	char buf[4];
 	const size_t len = ejstr("\"ab\\uD83D\\uDE03\"", buf, sizeof(buf));
 	if (len != 7) return TEST_BAD;
-	if (strnlen(buf, 100) != 2) return TEST_BAD;
+	if (strnlen(buf, sizeof(buf)) != 2) return TEST_BAD;
 	if (strcmp(buf, "ab") != 0) return TEST_BAD;
 	return true;
 }
