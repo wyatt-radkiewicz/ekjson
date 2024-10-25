@@ -5,7 +5,7 @@
 
 // Always inline macros
 #ifdef __GNUC__
-#define EKJSON_ALWAYS_INLINE __attribute__((always_inline))
+#define EKJSON_ALWAYS_INLINE inline __attribute__((always_inline))
 #else
 #define EKJSON_ALWAYS_INLINE
 #endif
