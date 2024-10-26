@@ -1,3 +1,4 @@
+#include <float.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -62,6 +63,13 @@
 #define CHECK_FLOAT(_size, _num) \
 	CHECK_START \
 		CHECK_BASE(EJFLT, _size, 1) \
+		const double num = ejflt(__src + toks[__idx].start); \
+		if (num != (double)_num) { \
+			if (!dopass) return true; \
+			fprintf(stderr, "token %d num: %.20f != %.20f\n", \
+				__idx, num, (double)_num); \
+			return false; \
+		} \
 	CHECK_END
 #define CHECK_INT(_size, _num) \
 	CHECK_START \
@@ -390,12 +398,12 @@ FAIL_SETUP(bool_true, "tru", 64)
 	CHECK_SIMPLE(EJBOOL, 1, 1)
 FAIL_END
 
-//FAIL_SETUP(float_max, "1.8e+308", 64)
-//	CHECK_FLOAT(1, 0)
-//FAIL_END
-//FAIL_SETUP(float_min, "-1.8e+308", 64)
-//	CHECK_FLOAT(1, 0)
-//FAIL_END
+FAIL_SETUP(float_max, "1.8e+308", 64)
+	CHECK_FLOAT(1, 0)
+FAIL_END
+FAIL_SETUP(float_min, "-1.8e+308", 64)
+	CHECK_FLOAT(1, 0)
+FAIL_END
 FAIL_SETUP(float_dot_after, "1.", 64)
 	CHECK_FLOAT(1, 0)
 FAIL_END
@@ -812,6 +820,20 @@ static void test_ejint_speed(void) {
 	printf("strtoll throughput (GB/s): %.2f\n", ngigs / time);
 	printf("strtoll throughput (millions N/s): %.2f\n",
 		((double)(niters * nums) / 1000000.0) / time);
+	
+	// test atoll
+	start = clock();
+	volatile uint64_t n = 0;
+	for (int i = 0; i < niters; i++) {
+		for (int j = 0; j < nums; j++) {
+			n += atoll(strings[j]);
+		}
+	}
+	time = (double)(clock() - start) / (double)CLOCKS_PER_SEC;
+	printf("atoll %d iters time (s): %.4f\n", niters, time);
+	printf("atoll throughput (GB/s): %.2f\n", ngigs / time);
+	printf("atoll throughput (millions N/s): %.2f\n",
+		((double)(niters * nums) / 1000000.0) / time);
 
 	// test ejint
 	start = clock();
@@ -989,6 +1011,9 @@ void usage(void) {
 }
 
 int main(int argc, char **argv) {
+	//double d = ejflt("1234.75");
+	//return 0;
+
 	bool speed_test = false;
 
 	if (argc > 2) {
@@ -1009,7 +1034,7 @@ int main(int argc, char **argv) {
 	int res = tests_run_foreach(NULL, tests, arrlen(tests), stdout)
 		? 0 : -1;
 	if (speed_test) {
-		test_ejstr_speed();
+		//test_ejstr_speed();
 		test_ejint_speed();
 	}
 	return res;

@@ -50,6 +50,11 @@
 	unsigned long long: __builtin_ctzll(x), \
 	unsigned long: __builtin_ctzl(x), \
 	unsigned int: __builtin_ctz(x))
+// Counts number of leading zeros in the number (starts from nth bit)
+#define clz(x) _Generic(x, \
+	unsigned long long: __builtin_clzll(x), \
+	unsigned long: __builtin_clzl(x), \
+	unsigned int: __builtin_clz(x))
 #else // Generic compiler implementations of these bitwise functions
 // Counts the number of trailing zeros in the number (starts from 0th bit)
 static EKJSON_ALWAYS_INLINE uint64_t ctz(uint64_t x) {
@@ -1025,7 +1030,7 @@ bool ejcmp(const char *src, const char *cstr) {
 #if !EKJSON_NO_BITWISE
 // Parses up to 8 digits and writes it to the out pointer. It how many of the
 // 8 bytes in this part of the string make up the number starting at the string
-static int parsedigits8(const char *const src, int64_t *const out) {
+static int parsedigits8(const char *const src, uint64_t *const out) {
 	// Load up 8 bytes of the source and set default amount of right bytes
 	// A 'right' byte is a byte that is a digit between 0 - 9
 	uint64_t val = ldu64_unaligned(src), nright = 8;
@@ -1065,6 +1070,10 @@ convert:
 }
 #endif
 
+double ejflt(const char *src) {
+	return 0.0;
+}
+
 // Returns the number token parsed as an int64_t. If there are decimals, it
 // just returns the number truncated towards 0. If the number is outside of
 // the int64_t range, it will saturate it to the closest limit.
@@ -1089,7 +1098,7 @@ int64_t ejint(const char *src) {
 overflow: // Check are sign to see what limit to saturate to
 	return sign == -1 ? INT64_MIN : INT64_MAX;
 #else
-	// Precalculate all the powers of 10 needed
+	// Precalculate all the powers of 10 needed for float/int parsers
 	static const int64_t pows[9] = {
 		1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000,
 	};
@@ -1103,7 +1112,7 @@ overflow: // Check are sign to see what limit to saturate to
 	
 	// Parse first 1-8 bytes of the number. If the number is 7 bytes or
 	// less, then we can be sure that we are done.
-	if (parsedigits8(src, &x) < 8) {
+	if (parsedigits8(src, (uint64_t *)&x) < 8) {
 		return x * sign;	// Make sure to apply sign
 	}
 
@@ -1111,7 +1120,7 @@ overflow: // Check are sign to see what limit to saturate to
 	// the number is truely a 8 byte number. So this section might have
 	// no number in it at all). We also apply the sign in this section
 	src += 8;			// Skip past the 8 bytes we parsed
-	n = parsedigits8(src, &tmp);	// Put next 8 bytes into tmp
+	n = parsedigits8(src, (uint64_t *)&tmp); // Put next 8 bytes into tmp
 	
 	// Make 'room' for the new digits we are adding by shifting the old
 	// ones by n number of decimal places
@@ -1123,7 +1132,7 @@ overflow: // Check are sign to see what limit to saturate to
 	// Since int64_t can hold 16 digit values easily, we have to now check
 	// for overflow since we're going over that.
 	src += 8;			// Skip past the 8 bytes we parsed
-	n = parsedigits8(src, &tmp);	// Put next 8 bytes into tmp
+	n = parsedigits8(src, (uint64_t *)&tmp); // Put next 8 bytes into tmp
 	
 	// Do the same as above but check if we overflowed
 	if (mul_overflow(x, pows[n], &x) || add_overflow(x, sign * tmp, &x)) {
