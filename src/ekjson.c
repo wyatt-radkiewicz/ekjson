@@ -103,11 +103,19 @@ static EKJSON_ALWAYS_INLINE uint32_t ldu32_unaligned(const void *const buf) {
 #if __GNUC__
 // Returns true if the signed addition overflowed or underflowed
 #define add_overflow(x, y, out) _Generic(x + y, \
+	unsigned long long: \
+		__builtin_uaddll_overflow(x, y, (unsigned long long *)out), \
+	unsigned long: \
+		__builtin_uaddl_overflow(x, y, (unsigned long *)out), \
 	long long: __builtin_saddll_overflow(x, y, (long long *)out), \
 	long: __builtin_saddl_overflow(x, y, (long *)out), \
 	int: __builtin_sadd_overflow(x, y, (int *)out))
 // Returns true if the signed multiplication overflowed or underflowed
 #define mul_overflow(x, y, out) _Generic(x + y, \
+	unsigned long long: \
+		__builtin_umulll_overflow(x, y, (unsigned long long *)out), \
+	unsigned long: \
+		__builtin_umull_overflow(x, y, (unsigned long *)out), \
 	long long: __builtin_smulll_overflow(x, y, (long long *)out), \
 	long: __builtin_smull_overflow(x, y, (long *)out), \
 	int: __builtin_smul_overflow(x, y, (int *)out))
@@ -1070,80 +1078,11 @@ convert:
 }
 #endif
 
-typedef struct hpf {
-	uint64_t m;
-	int32_t e;
-	bool s;
-	bool isnorm, isinf, isnan;
-} hpf_t;
-
-static void mul64(uint64_t lhs, uint64_t rhs, uint64_t *lo, uint64_t *hi) {
-    __uint128_t res = (__uint128_t)lhs * rhs;
-    *lo = (uint64_t)res;
-    *hi = (uint64_t)(res >> 64);
-}
-
-static hpf_t hpf_mul(const hpf_t lhs, const hpf_t rhs) {
-	hpf_t out = { .e = lhs.e + rhs.e, .s = lhs.s ^ rhs.s };
-
-	uint64_t lo, hi;
-	mul64(lhs.m, rhs.m, &lo, &hi);
-
-	if (!hi) {
-		const int lz = clz(lo);
-		out.m = lo << lz;
-	} else {
-		const int lz = clz(hi);
-		out.m = hi << lz;
-		out.m |= lo << (64 - lz);
-	}
-
-	out.e += hi >> 63;
-
-	return out;
-}
-
-static double hpftod(const hpf_t hpf) {
-	union {
-		double d;
-		uint64_t u;
-	} dbl;
-
-	dbl.u = (uint64_t)hpf.s << 63;
-	dbl.u |= (uint64_t)((hpf.e + 1023) & 0x7FF) << 52;
-	dbl.u |= (hpf.m >> 11) & 0xFFFFFFFFFFFFF;
-
-	return dbl.d;
-}
-
+// Returns the number token as a float. If the number is out of the range that
+// can be represented, it will return either +/-inf. This function will never
+// return nan. This function will also handle +/-0.0
 double ejflt(const char *src) {
-	hpf_t hpf = { .m = 0, .e = 0, .s = *src == '-' };
-	src += hpf.s;
-
-	for (bool sawdot = false;
-		*src >= '0' && *src <= '9' || *src == '.';
-		src++) {
-
-		if (*src == '.') {
-			sawdot = true;
-			continue;
-		}
-		if (sawdot) hpf.e--;
-
-		hpf.m *= 10;
-		hpf.m += *src - '0';
-	}
-
-	const int lz = clz(hpf.m);
-	hpf.m <<= lz;
-	hpf.e += 64 - lz - 1;
-
-	hpf = hpf_mul(hpf, (hpf_t){
-		.e = 3,
-		.m = 0xC000000000000000,
-	});
-
-	return hpftod(hpf);
+	return 0.0;
 }
 
 // Returns the number token parsed as an int64_t. If there are decimals, it
