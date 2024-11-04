@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?><!--Created with JFLAP 6.4.--><structure>
+	<type>fa</type>
+	<automaton>
+		<!--The list of states.-->
+		<state id="0" name="main">
+			<x>79.0</x>
+			<y>143.0</y>
+			<initial/>
+		</state>
+		<state id="1" name="esc">
+			<x>185.0</x>
+			<y>61.0</y>
+		</state>
+		<state id="2" name="done">
+			<x>82.0</x>
+			<y>231.0</y>
+			<final/>
+		</state>
+		<state id="3" name="err">
+			<x>302.0</x>
+			<y>232.0</y>
+			<final/>
+		</state>
+		<state id="4" name="unicode1">
+			<x>298.0</x>
+			<y>61.0</y>
+		</state>
+		<state id="5" name="unicode2">
+			<x>418.0</x>
+			<y>60.0</y>
+		</state>
+		<state id="6" name="unicode3">
+			<x>298.0</x>
+			<y>140.0</y>
+		</state>
+		<!--The list of transitions.-->
+		<transition>
+			<from>5</from>
+			<to>6</to>
+			<read>0-9,A-F,a-f</read>
+		</transition>
+		<transition>
+			<from>1</from>
+			<to>4</to>
+			<read>0-9,A-F,a-f</read>
+		</transition>
+		<transition>
+			<from>0</from>
+			<to>2</to>
+			<read>"</read>
+		</transition>
+		<transition>
+			<from>1</from>
+			<to>0</to>
+			<read>",\,/,b,f,n,r,t</read>
+		</transition>
+		<transition>
+			<from>4</from>
+			<to>5</to>
+			<read>0-9,A-F,a-f</read>
+		</transition>
+		<transition>
+			<from>0</from>
+			<to>0</to>
+			<read>*</read>
+		</transition>
+		<transition>
+			<from>6</from>
+			<to>0</to>
+			<read>0-9,A-F,a-f</read>
+		</transition>
+	</automaton>
+</structure>

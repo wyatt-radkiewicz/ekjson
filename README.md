@@ -1,4 +1,4 @@
-![eklipsed](/eklipsed.jpg)
+![eklipsed](/tools/eklipsed.jpg)
 <p align="center">ek(lips3d) json parser -*ektoml*-</p>
 
 > A really fast, simple, malloc-less, (opinionated) json parser in c
