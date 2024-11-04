@@ -82,6 +82,22 @@ class State:
         self.edges = [error_state] * edge_type_count
         self.still_default = [True] * edge_type_count
 
+# Returns char len and char id
+def parse_edge_char(s: str) -> tuple[int, int]:
+    if s[0] == '\'':
+        return (6, int(s[1:5], 16))
+    else:
+        return (1, ord(s[0]))
+
+# Returns range
+def parse_edge_range(s: str) -> list[int]:
+    start = parse_edge_char(s[0:])
+    if len(s) > start[0] and s[start[0]] == '-':
+        return list(range(start[1],
+                          parse_edge_char(s[(start[0] + 1):])[1] + 1))
+    else:
+        return list(range(start[1], start[1] + 1))
+
 class EdgeIter:
     def __init__(self, code):
         self.chars = []
@@ -92,11 +108,8 @@ class EdgeIter:
             return
 
         for trans_range in code.split(','):
-            if len(trans_range) == 3 and trans_range[1] == '-':
-                for c in range(ord(trans_range[0]), ord(trans_range[2]) + 1):
-                    self.chars.append(c)
-            else:
-                self.chars.append(ord(trans_range[0]))
+            for c in parse_edge_range(trans_range):
+                self.chars.append(c)
 
     def __iter__(self):
         return self
@@ -130,6 +143,7 @@ class Transitions:
             # Look for runs of digits
             i = 0
             nrow = 0
+            first = True
             print('\t', end='')
             while i < 256:
                 if self.edge_table[i] == 0:
@@ -142,15 +156,26 @@ class Transitions:
                 while self.edge_table[i] == num:
                     i += 1
 
-                resetrow = i - k > 1 or nrow > 5
+                resetrow = (i - k > 1 or nrow > 3) and not first
                 if resetrow:
                     nrow = 0
                     print('\n\t', end='')
+                first = False
                 nrow += 1
                 print(f'[\'{chr(k)}\'] = ', end='')
+                curr = 0
                 while k != i:
                     print(f'{num}, ', end='')
+                    curr += 1
                     k += 1
+                    if curr > 15 and k != i:
+                        print('\n\t\t', end='')
+                        curr = 0
+                        resetrow = True
+                if curr > 4:
+                    #print('\n')
+                    #resetrow = True
+                    nrow = 100
             print('')
         else:
             for i in range(0, 16):
@@ -202,19 +227,38 @@ class Transitions:
 
                 if j != 0: print('\t  ', end='')
                 else: print('\t{ ', end='')
-                for k in range(0, 16):
-                    edge = self.edge_table[j * 16 + k]
-                    to = self.states[i].edges[edge]
-                    print(f'{to}', end='')
-                    if to < 10: print(' ', end='')
 
-                    if k == 15:
-                        if j == 15:
-                            print(', ', end='')
+                if states.error_id > 9:
+                    for k in range(0, 16):
+                        edge = self.edge_table[j * 16 + k]
+                        to = self.states[i].edges[edge]
+                        print(f'{to}', end='')
+                        if to < 10: print(' ', end='')
+
+                        if k == 15:
+                            if j == 15:
+                                print(', ', end='')
+                            else:
+                                print(',\n', end='')
                         else:
-                            print(',\n', end='')
-                    else:
-                        print(', ', end='')
+                            print(', ', end='')
+
+                        if k == 7:
+                            print('\n\t  ', end='')
+                else:
+                    for k in range(0, 16):
+                        edge = self.edge_table[j * 16 + k]
+                        to = self.states[i].edges[edge]
+                        print(f'{to}', end='')
+
+                        if k == 15:
+                            if j == 15:
+                                print(', ', end='')
+                            else:
+                                print(',\n', end='')
+                        else:
+                            print(', ', end='')
+
             #print('},')
         print('};\n')
         print('#endif // EKJSON_SPACE_EFFICIENT\n')
