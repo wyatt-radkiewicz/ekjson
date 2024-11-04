@@ -1084,7 +1084,7 @@ static void mul64(uint64_t lhs, uint64_t rhs, uint64_t *lo, uint64_t *hi) {
 }
 
 static hpf_t hpf_mul(const hpf_t lhs, const hpf_t rhs) {
-	hpf_t out = { .e = lhs.e + rhs.e, .s = lhs.s ^ rhs.s };
+	hpf_t out = { .e = lhs.e + rhs.e + 1, .s = lhs.s ^ rhs.s };
 
 	uint64_t lo, hi;
 	mul64(lhs.m, rhs.m, &lo, &hi);
@@ -1097,8 +1097,6 @@ static hpf_t hpf_mul(const hpf_t lhs, const hpf_t rhs) {
 		out.m = hi << lz;
 		out.m |= lo << (64 - lz);
 	}
-
-	out.e += hi >> 63;
 
 	return out;
 }
