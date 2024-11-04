@@ -42,6 +42,36 @@
 
 // Bit trick functions and macros
 #if !EKJSON_NO_BITWISE
+
+// Bitwise operations
+#if __GNUC__ // Implement using GNU compiler compatible extensions
+// Counts the number of trailing zeros in the number (starts from 0th bit)
+#define ctz(x) _Generic(x, \
+	unsigned long long: __builtin_ctzll(x), \
+	unsigned long: __builtin_ctzl(x), \
+	unsigned int: __builtin_ctz(x))
+// Counts number of leading zeros in the number (starts from nth bit)
+#define clz(x) _Generic(x, \
+	unsigned long long: __builtin_clzll(x), \
+	unsigned long: __builtin_clzl(x), \
+	unsigned int: __builtin_clz(x))
+#else // Generic compiler implementations of these bitwise functions
+// Counts the number of trailing zeros in the number (starts from 0th bit)
+static EKJSON_ALWAYS_INLINE uint64_t ctz(uint64_t x) {
+	x &= -x;	// Isolate the first 1 so we can get its position
+	uint64_t n = 0;	// Number of trailing zeros
+	
+	// Divide and concore approach
+	n += x & 0xFFFFFFFF00000000 ? 32 : 0;
+	n += x & 0xFFFF0000FFFF0000 ? 16 : 0;
+	n += x & 0xFF00FF00FF00FF00 ? 8 : 0;
+	n += x & 0xF0F0F0F0F0F0F0F0 ? 4 : 0;
+	n += x & 0xCCCCCCCCCCCCCCCC ? 2 : 0;
+	n += x & 0xAAAAAAAAAAAAAAAA ? 1 : 0;
+	return n;
+}
+#endif // __GNUC__
+
 // Wrappers for loading u16/u32/u64 on unaligned addresses
 static EKJSON_ALWAYS_INLINE uint64_t ldu64_unaligned(const void *const buf) {
 	const uint8_t *const bytes = buf;
@@ -68,6 +98,40 @@ static EKJSON_ALWAYS_INLINE uint32_t ldu32_unaligned(const void *const buf) {
 		| (uint32_t)bytes[2] << 16
 		| (uint32_t)bytes[3] << 24;
 }
+
+// Overflow detecting math ops
+#if __GNUC__
+// Returns true if the signed addition overflowed or underflowed
+#define add_overflow(x, y, out) _Generic(x + y, \
+	unsigned long long: \
+		__builtin_uaddll_overflow(x, y, (unsigned long long *)out), \
+	unsigned long: \
+		__builtin_uaddl_overflow(x, y, (unsigned long *)out), \
+	long long: __builtin_saddll_overflow(x, y, (long long *)out), \
+	long: __builtin_saddl_overflow(x, y, (long *)out), \
+	int: __builtin_sadd_overflow(x, y, (int *)out))
+// Returns true if the signed multiplication overflowed or underflowed
+#define mul_overflow(x, y, out) _Generic(x + y, \
+	unsigned long long: \
+		__builtin_umulll_overflow(x, y, (unsigned long long *)out), \
+	unsigned long: \
+		__builtin_umull_overflow(x, y, (unsigned long *)out), \
+	long long: __builtin_smulll_overflow(x, y, (long long *)out), \
+	long: __builtin_smull_overflow(x, y, (long *)out), \
+	int: __builtin_smul_overflow(x, y, (int *)out))
+#else // Generic implementations
+static EKJSON_ALWAYS_INLINE bool add_overflow(int64_t x, int64_t y,
+						int64_t *out) {
+	*out = x + y;
+	return x > 0 && y > INT64_MAX - x || x < 0 && y < INT64_MIN - x;
+}
+static EKJSON_ALWAYS_INLINE bool mul_overflow(int64_t x, int64_t y,
+						int64_t *out) {
+	*out = x * y;
+	y = y < 0 ? -y : y;
+	return x > 0 && x > INT64_MAX / y || x < 0 && x < INT64_MIN / y;
+}
+#endif // __GNUC__
 
 // Unicode escape helper functions
 
@@ -971,12 +1035,124 @@ bool ejcmp(const char *src, const char *cstr) {
 	return *cstr == '\0';
 }
 
-double ejflt(const char *tok_start) {
+#if !EKJSON_NO_BITWISE
+// Parses up to 8 digits and writes it to the out pointer. It how many of the
+// 8 bytes in this part of the string make up the number starting at the string
+static int parsedigits8(const char *const src, uint64_t *const out) {
+	// Load up 8 bytes of the source and set default amount of right bytes
+	// A 'right' byte is a byte that is a digit between 0 - 9
+	uint64_t val = ldu64_unaligned(src), nright = 8;
+
+	// The high nibble of each byte that is not between 0-9 is set
+	const uint64_t wrong_bytes = (val ^ 0x3030303030303030)
+		+ 0x0606060606060606 & 0xF0F0F0F0F0F0F0F0;
+
+	// Skip the shifting code if there are no wrong bytes. Also we do this
+	// because getting the leading zero count on 0 depends on what
+	// architecture you're specifically on
+	if (!wrong_bytes) goto convert;
+
+	// The index of the first wrong byte is the number of right bytes
+	// Due to the UB of shifting by the int width, exit early here.
+	// It also doubles up as an early exit optimization
+	if (!(nright = ctz(wrong_bytes) / 8)) {
+		*out = 0;
+		return 0;
+	}
+
+	// Shift out the invalid bytes and since the conversion down here only
+	// works when the msb is the ones place digit, shift the ones place
+	// to the msb
+	val <<= (8 - nright) * 8;
+
+convert:
+	// Convert the chars in val to a digit. Found this at this amazing talk
+	// https://lemire.me/en/talk/gosystems2020/
+	// This is also a variation of the algorithm found here:
+	// https://kholdstare.github.io/technical/2020/05/26/faster-integer-parsing.html
+	val = (val & 0x0F0F0F0F0F0F0F0F) * (0x100 * 10 + 1) >> 8;
+	val = (val & 0x00FF00FF00FF00FF) * (0x10000 * 100 + 1) >> 16;
+	val = (val & 0x0000FFFF0000FFFF) * (0x100000000 * 10000 + 1) >> 32;
+	*out = val;
+	return nright;
+}
+#endif
+
+// Returns the number token as a float. If the number is out of the range that
+// can be represented, it will return either +/-inf. This function will never
+// return nan. This function will also handle +/-0.0
+double ejflt(const char *src) {
 	return 0.0;
 }
 
-int64_t ejint(const char *tok_start) {
-	return 0;
+// Returns the number token parsed as an int64_t. If there are decimals, it
+// just returns the number truncated towards 0. If the number is outside of
+// the int64_t range, it will saturate it to the closest limit.
+int64_t ejint(const char *src) {
+#if EKJSON_NO_BITWISE
+	// Get the sign of the number and skip the negative char if nessesary
+	int64_t sign = *src == '-' ? -1 : 1, x = 0;
+	src += *src == '-';
+
+	// Loop through all the digits
+	while (*src >= '0' && *src <= '9') {
+		const int64_t d = *src++ - '0'; // Convert char to number
+
+		// Shift current value up by a decimal place
+		if (mul_overflow(x, 10, &x)) goto overflow; // Check overflow
+
+		// Add the new ones place we found
+		if (add_overflow(x, d * sign, &x)) goto overflow;
+	}
+
+	return x;
+overflow: // Check are sign to see what limit to saturate to
+	return sign == -1 ? INT64_MIN : INT64_MAX;
+#else
+	// Precalculate all the powers of 10 needed for float/int parsers
+	static const int64_t pows[9] = {
+		1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000,
+	};
+
+	// Get the sign of the number
+	const int64_t sign = *src == '-' ? -1 : 1;
+	int64_t x, tmp; // Our num. we are making, and current number bit (tmp)
+	int n;	// The number of right chars in the 8-byte sequence we parsed
+
+	src += *src == '-';		// Skip the negative char if nessesary
+	
+	// Parse first 1-8 bytes of the number. If the number is 7 bytes or
+	// less, then we can be sure that we are done.
+	if (parsedigits8(src, (uint64_t *)&x) < 8) {
+		return x * sign;	// Make sure to apply sign
+	}
+
+	// Parse next 8 byte section (this also accounts for the case that
+	// the number is truely a 8 byte number. So this section might have
+	// no number in it at all). We also apply the sign in this section
+	src += 8;			// Skip past the 8 bytes we parsed
+	n = parsedigits8(src, (uint64_t *)&tmp); // Put next 8 bytes into tmp
+	
+	// Make 'room' for the new digits we are adding by shifting the old
+	// ones by n number of decimal places
+	x *= pows[n] * sign;		// Apply sign
+	x += tmp * sign; // Add the numbers we parsed and apply sign to them
+	
+	if (n < 8) return x; // Return if we're sure we're at the end
+
+	// Since int64_t can hold 16 digit values easily, we have to now check
+	// for overflow since we're going over that.
+	src += 8;			// Skip past the 8 bytes we parsed
+	n = parsedigits8(src, (uint64_t *)&tmp); // Put next 8 bytes into tmp
+	
+	// Do the same as above but check if we overflowed
+	if (mul_overflow(x, pows[n], &x) || add_overflow(x, sign * tmp, &x)) {
+		// Saturate to the limit corresponding to the sign
+		return sign == -1 ? INT64_MIN : INT64_MAX;
+	} else {
+		return x;	// Otherwise our x is already good
+	}
+#endif
 }
 
 // Returns whether the boolean is true or false
