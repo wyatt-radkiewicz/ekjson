@@ -1011,8 +1011,8 @@ void usage(void) {
 }
 
 int main(int argc, char **argv) {
-	double d = ejflt("6");
-	return 0;
+	//double d = ejflt("1234.75");
+	//return 0;
 
 	bool speed_test = false;
 

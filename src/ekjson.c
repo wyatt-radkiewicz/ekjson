@@ -1070,78 +1070,8 @@ convert:
 }
 #endif
 
-typedef struct hpf {
-	uint64_t m;
-	int32_t e;
-	bool s;
-	bool isnorm, isinf, isnan;
-} hpf_t;
-
-static void mul64(uint64_t lhs, uint64_t rhs, uint64_t *lo, uint64_t *hi) {
-    __uint128_t res = (__uint128_t)lhs * rhs;
-    *lo = (uint64_t)res;
-    *hi = (uint64_t)(res >> 64);
-}
-
-static hpf_t hpf_mul(const hpf_t lhs, const hpf_t rhs) {
-	hpf_t out = { .e = lhs.e + rhs.e + 1, .s = lhs.s ^ rhs.s };
-
-	uint64_t lo, hi;
-	mul64(lhs.m, rhs.m, &lo, &hi);
-
-	if (!hi) {
-		const int lz = clz(lo);
-		out.m = lo << lz;
-	} else {
-		const int lz = clz(hi);
-		out.m = hi << lz;
-		out.m |= lo << (64 - lz);
-	}
-
-	return out;
-}
-
-static double hpftod(const hpf_t hpf) {
-	union {
-		double d;
-		uint64_t u;
-	} dbl;
-
-	dbl.u = (uint64_t)hpf.s << 63;
-	dbl.u |= (uint64_t)((hpf.e + 1023) & 0x7FF) << 52;
-	dbl.u |= (hpf.m >> 11) & 0xFFFFFFFFFFFFF;
-
-	return dbl.d;
-}
-
 double ejflt(const char *src) {
-	hpf_t hpf = { .m = 0, .e = 0, .s = *src == '-' };
-	src += hpf.s;
-
-	for (bool sawdot = false;
-		*src >= '0' && *src <= '9' || *src == '.';
-		src++) {
-
-		if (*src == '.') {
-			sawdot = true;
-			continue;
-		}
-		if (sawdot) hpf.e--;
-
-		hpf.m *= 10;
-		hpf.m += *src - '0';
-	}
-
-	const int lz = clz(hpf.m);
-	hpf.m <<= lz;
-	hpf.e += 64 - lz - 1;
-
-	hpf = hpf_mul(hpf, (hpf_t){
-		.e = 3,
-		.m = 0xC000000000000000,
-	});
-
-	return hpftod(hpf);
+	return 0.0;
 }
 
 // Returns the number token parsed as an int64_t. If there are decimals, it
