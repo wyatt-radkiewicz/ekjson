@@ -59,15 +59,15 @@ size_t ejstr(const char *tok_start, char *out, size_t outlen);
 // tok_start or cstr is undefined.
 bool ejcmp(const char *tok_start, const char *cstr);
 
-// Returns the number token as a float. If the number is out of the range that
-// can be represented, it will return either +/-inf. This function will never
-// return nan. This function will also handle +/-0.0
-double ejflt(const char *tok_start);
-
 // Returns the number token parsed as an int64_t. If there are decimals, it
 // just returns the number truncated towards 0. If the number is outside of
 // the int64_t range, it will saturate it to the closest limit.
 int64_t ejint(const char *tok_start);
+
+// Returns the number token as a float. If the number is out of the range that
+// can be represented, it will return either +/-inf. This function will never
+// return nan. This function will also handle +/-0.0
+double ejflt(const char *tok_start);
 
 // Returns whether the boolean is true or false
 bool ejbool(const char *tok_start);

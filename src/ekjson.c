@@ -1039,10 +1039,6 @@ convert:
 }
 #endif
 
-double ejflt(const char *src) {
-	return 0.0;
-}
-
 // Returns the number token parsed as an int64_t. If there are decimals, it
 // just returns the number truncated towards 0. If the number is outside of
 // the int64_t range, it will saturate it to the closest limit.
@@ -1111,6 +1107,10 @@ overflow: // Check are sign to see what limit to saturate to
 		return x;	// Otherwise our x is already good
 	}
 #endif
+}
+
+double ejflt(const char *src) {
+	return 0.0;
 }
 
 // Returns whether the boolean is true or false
