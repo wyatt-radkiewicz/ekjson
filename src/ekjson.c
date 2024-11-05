@@ -1049,9 +1049,12 @@ convert:
 
 // Parse base10 integer while rounding when overflow occurs
 // This goes byte by byte so it can see the last byte and round if
-// nessesary. Returns true if overflow occurred
-static bool parsebase10_round(const char *src, uint64_t *const out) {
+// nessesary. Returns number of chars parsed. Stores overflow bool in out param
+static int parsebase10_round(const char *src, uint64_t *out, bool *overflow) {
+	const char *const start = src; // First digit
 	uint64_t last; // Save last digit we found
+	
+	*overflow = false; // Make sure overflow is false
 
 	// Loop through all the digits
 	for (*out = 0; *src >= '0' && *src <= '9'; last = *out) {
@@ -1064,20 +1067,24 @@ static bool parsebase10_round(const char *src, uint64_t *const out) {
 		if (add_overflow(*out, d, out)) goto overflow;
 	}
 
-	return false;
+	return src - start;
 overflow:
 	// Add 1 more to output to round up if the last digit was 5 or over
+	*overflow = true;
 	*out = last + src[-1] >= '5';
-	return true;
+	return src - start;
 }
 
 // Parses a stream of base10 digits
-// Returns true if the value overflowed the maximum uint64_t value
+// Returns number of chars parsed. Stores if overflow occurred in overflow
+// flag
 // The value does NOT saturate
-static bool parsebase10(const char *src, uint64_t *const out) {
+static int parsebase10(const char *src, uint64_t *const out, bool *overflow) {
 #if EKJSON_NO_BITWISE
-	return parsebase10_round(src, out);
+	return parsebase10_round(src, out, overflow);
 #else
+	*overflow = false;
+
 	// Precalculate all the powers of 10 needed for float/int parsers
 	static const uint64_t pows[9] = {
 		1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000,
@@ -1088,7 +1095,7 @@ static bool parsebase10(const char *src, uint64_t *const out) {
 	
 	// Parse first 1-8 bytes of the number. If the number is 7 bytes or
 	// less, then we can be sure that we are done.
-	if (parsedigits8(src, out) < 8) return false;
+	if ((n = parsedigits8(src, out)) < 8) return n;
 
 	// Parse next 8 byte section (this also accounts for the case that
 	// the number is truely a 8 byte number. So this section might have
@@ -1098,16 +1105,16 @@ static bool parsebase10(const char *src, uint64_t *const out) {
 	// Make 'room' for the new digits we are adding by shifting the old
 	// ones by n number of decimal places and add the new digits
 	*out = *out * pows[n] + tmp;
-	if (n < 8) return false; // Return if we're sure we're at the end
+	if (n < 8) return n + 8; // Return if we're sure we're at the end
 
 	// Since uint64_t can hold 16 digit values easily, we have to now check
 	// for overflow since we're going over that.
 	n = parsedigits8(src + 16, &tmp); // Put next 8 bytes into tmp
 	
 	// Do the same as above but check if we overflowed
-	bool ret = mul_overflow(*out, pows[n], out);
-	ret |= add_overflow(*out, tmp, out);
-	return ret; // We return if any step overflowed
+	*overflow = mul_overflow(*out, pows[n], out);
+	*overflow |= add_overflow(*out, tmp, out);
+	return n + 16; // Return number of digits parsed
 #endif
 }
 
@@ -1117,13 +1124,17 @@ static bool parsebase10(const char *src, uint64_t *const out) {
 int64_t ejint(const char *const src) {
 	// What the sign of the number is
 	const bool sign = *src == '-';
+	bool overflow;	// parsebase10 stores overflow flag here
 
 	// The bound for the sign of the number
 	uint64_t bound = (uint64_t)INT64_MAX + sign, x;
 	
-	// Parse int and make sure it didn't also overflow the int64 range
-	// Also increment source pointer if sign is negative
-	if (parsebase10(src + sign, &x) || x > bound) return (int64_t)bound;
+	// Parse int and also increment source pointer if sign is negative
+	parsebase10(src + sign, &x, &overflow);
+
+	// Make sure it didn't also overflow the i64/u64 range,
+	// otherwise just return the correct sign
+	if (overflow || x > bound) return (int64_t)bound;
 	else return sign ? -(int64_t)x : (int64_t)x; // Apply sign
 }
 
