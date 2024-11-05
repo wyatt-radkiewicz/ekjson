@@ -1047,23 +1047,36 @@ convert:
 }
 #endif
 
-// Parses a stream of base10 digits
-// Returns true if the value overflowed the maximum uint64_t value
-// The value does NOT saturate
-static bool parsebase10(const char *const src, uint64_t *const out) {
-#if EKJSON_NO_BITWISE
+// Parse base10 integer while rounding when overflow occurs
+// This goes byte by byte so it can see the last byte and round if
+// nessesary. Returns true if overflow occurred
+static bool parsebase10_round(const char *src, uint64_t *const out) {
+	uint64_t last; // Save last digit we found
+
 	// Loop through all the digits
-	for (*out = 0; *src >= '0' && *src <= '9';) {
+	for (*out = 0; *src >= '0' && *src <= '9'; last = *out) {
 		const int64_t d = *src++ - '0'; // Convert char to number
 
 		// Shift current value up by a decimal place
-		if (mul_overflow(*out, 10, out)) return true;
+		if (mul_overflow(*out, 10, out)) goto overflow;
 
 		// Add the new ones place we found
-		if (add_overflow(*out, d, out)) return true;
+		if (add_overflow(*out, d, out)) goto overflow;
 	}
 
 	return false;
+overflow:
+	// Add 1 more to output to round up if the last digit was 5 or over
+	*out = last + src[-1] >= '5';
+	return true;
+}
+
+// Parses a stream of base10 digits
+// Returns true if the value overflowed the maximum uint64_t value
+// The value does NOT saturate
+static bool parsebase10(const char *src, uint64_t *const out) {
+#if EKJSON_NO_BITWISE
+	return parsebase10_round(src, out);
 #else
 	// Precalculate all the powers of 10 needed for float/int parsers
 	static const uint64_t pows[9] = {
