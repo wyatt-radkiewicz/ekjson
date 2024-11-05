@@ -103,14 +103,20 @@ static EKJSON_ALWAYS_INLINE uint32_t ldu32_unaligned(const void *const buf) {
 #if __GNUC__
 // Returns true if the signed addition overflowed or underflowed
 #define add_overflow(x, y, out) _Generic(x + y, \
+	unsigned long long: __builtin_uaddll_overflow(x, y, \
+				(unsigned long long *)out), \
 	long long: __builtin_saddll_overflow(x, y, (long long *)out), \
-	long: __builtin_saddl_overflow(x, y, (long *)out), \
-	int: __builtin_sadd_overflow(x, y, (int *)out))
+	unsigned long: __builtin_uaddl_overflow(x, y, \
+				(unsigned long *)out), \
+	long: __builtin_saddl_overflow(x, y, (long *)out))
 // Returns true if the signed multiplication overflowed or underflowed
 #define mul_overflow(x, y, out) _Generic(x + y, \
+	unsigned long long: __builtin_umulll_overflow(x, y, \
+				(unsigned long long *)out), \
 	long long: __builtin_smulll_overflow(x, y, (long long *)out), \
-	long: __builtin_smull_overflow(x, y, (long *)out), \
-	int: __builtin_smul_overflow(x, y, (int *)out))
+	unsigned long: __builtin_umull_overflow(x, y, \
+				(unsigned long *)out), \
+	long: __builtin_smull_overflow(x, y, (long *)out))
 #else // Generic implementations
 static EKJSON_ALWAYS_INLINE bool add_overflow(int64_t x, int64_t y,
 						int64_t *out) {
@@ -1039,74 +1045,71 @@ convert:
 }
 #endif
 
-// Returns the number token parsed as an int64_t. If there are decimals, it
-// just returns the number truncated towards 0. If the number is outside of
-// the int64_t range, it will saturate it to the closest limit.
-int64_t ejint(const char *src) {
+// Parses a stream of base10 digits
+// Returns true if the value overflowed the maximum uint64_t value
+// The value does NOT saturate
+static bool parsebase10(const char *const src, uint64_t *const out) {
 #if EKJSON_NO_BITWISE
-	// Get the sign of the number and skip the negative char if nessesary
-	int64_t sign = *src == '-' ? -1 : 1, x = 0;
-	src += *src == '-';
-
 	// Loop through all the digits
-	while (*src >= '0' && *src <= '9') {
+	for (*out = 0; *src >= '0' && *src <= '9';) {
 		const int64_t d = *src++ - '0'; // Convert char to number
 
 		// Shift current value up by a decimal place
-		if (mul_overflow(x, 10, &x)) goto overflow; // Check overflow
+		if (mul_overflow(*out, 10, out)) return true;
 
 		// Add the new ones place we found
-		if (add_overflow(x, d * sign, &x)) goto overflow;
+		if (add_overflow(*out, d, out)) return true;
 	}
 
-	return x;
-overflow: // Check are sign to see what limit to saturate to
-	return sign == -1 ? INT64_MIN : INT64_MAX;
+	return false;
 #else
 	// Precalculate all the powers of 10 needed for float/int parsers
-	static const int64_t pows[9] = {
+	static const uint64_t pows[9] = {
 		1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000,
 	};
 
-	// Get the sign of the number
-	const int64_t sign = *src == '-' ? -1 : 1;
-	int64_t x, tmp; // Our num. we are making, and current number bit (tmp)
+	uint64_t tmp; // Our num we are making, and curr number part (tmp)
 	int n;	// The number of right chars in the 8-byte sequence we parsed
-
-	src += *src == '-';		// Skip the negative char if nessesary
 	
 	// Parse first 1-8 bytes of the number. If the number is 7 bytes or
 	// less, then we can be sure that we are done.
-	if (parsedigits8(src, (uint64_t *)&x) < 8) {
-		return x * sign;	// Make sure to apply sign
-	}
+	if (parsedigits8(src, out) < 8) return false;
 
 	// Parse next 8 byte section (this also accounts for the case that
 	// the number is truely a 8 byte number. So this section might have
 	// no number in it at all). We also apply the sign in this section
-	src += 8;			// Skip past the 8 bytes we parsed
-	n = parsedigits8(src, (uint64_t *)&tmp); // Put next 8 bytes into tmp
+	n = parsedigits8(src + 8, &tmp); // Put next 8 bytes into tmp
 	
 	// Make 'room' for the new digits we are adding by shifting the old
-	// ones by n number of decimal places
-	x *= pows[n] * sign;		// Apply sign
-	x += tmp * sign; // Add the numbers we parsed and apply sign to them
-	
-	if (n < 8) return x; // Return if we're sure we're at the end
+	// ones by n number of decimal places and add the new digits
+	*out = *out * pows[n] + tmp;
+	if (n < 8) return false; // Return if we're sure we're at the end
 
-	// Since int64_t can hold 16 digit values easily, we have to now check
+	// Since uint64_t can hold 16 digit values easily, we have to now check
 	// for overflow since we're going over that.
-	src += 8;			// Skip past the 8 bytes we parsed
-	n = parsedigits8(src, (uint64_t *)&tmp); // Put next 8 bytes into tmp
+	n = parsedigits8(src + 16, &tmp); // Put next 8 bytes into tmp
 	
 	// Do the same as above but check if we overflowed
-	if (mul_overflow(x, pows[n], &x) || add_overflow(x, sign * tmp, &x)) {
-		// Saturate to the limit corresponding to the sign
-		return sign == -1 ? INT64_MIN : INT64_MAX;
-	} else {
-		return x;	// Otherwise our x is already good
-	}
+	bool ret = mul_overflow(*out, pows[n], out);
+	ret |= add_overflow(*out, tmp, out);
+	return ret; // We return if any step overflowed
 #endif
+}
+
+// Returns the number token parsed as an int64_t. If there are decimals, it
+// just returns the number truncated towards 0. If the number is outside of
+// the int64_t range, it will saturate it to the closest limit.
+int64_t ejint(const char *const src) {
+	// What the sign of the number is
+	const bool sign = *src == '-';
+
+	// The bound for the sign of the number
+	uint64_t bound = (uint64_t)INT64_MAX + sign, x;
+	
+	// Parse int and make sure it didn't also overflow the int64 range
+	// Also increment source pointer if sign is negative
+	if (parsebase10(src + sign, &x) || x > bound) return (int64_t)bound;
+	else return sign ? -(int64_t)x : (int64_t)x; // Apply sign
 }
 
 double ejflt(const char *src) {
