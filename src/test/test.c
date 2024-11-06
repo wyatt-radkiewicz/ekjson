@@ -1011,8 +1011,10 @@ void usage(void) {
 }
 
 int main(int argc, char **argv) {
-	//double d = ejflt("1234.75");
-	//return 0;
+	double d = ejflt("4.75e200");
+	printf("%20.20f\n", d);
+	printf("0x%llX\n", *(uint64_t *)&d);
+	return 0;
 
 	bool speed_test = false;
 
