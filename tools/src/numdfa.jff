@@ -50,15 +50,20 @@
 			<x>314.0</x>
 			<y>159.0</y>
 		</state>
-		<state id="11" name="q11">
+		<state id="11" name="exp">
 			<x>313.0</x>
 			<y>250.0</y>
 		</state>
 		<!--The list of transitions.-->
 		<transition>
-			<from>7</from>
-			<to>8</to>
-			<read>0-9</read>
+			<from>2</from>
+			<to>7</to>
+			<read>.</read>
+		</transition>
+		<transition>
+			<from>8</from>
+			<to>9</to>
+			<read>e,E</read>
 		</transition>
 		<transition>
 			<from>3</from>
@@ -66,13 +71,23 @@
 			<read>e,E</read>
 		</transition>
 		<transition>
-			<from>9</from>
-			<to>10</to>
-			<read>-,+</read>
+			<from>7</from>
+			<to>8</to>
+			<read>0-9</read>
 		</transition>
 		<transition>
 			<from>11</from>
 			<to>5</to>
+			<read>*</read>
+		</transition>
+		<transition>
+			<from>9</from>
+			<to>11</to>
+			<read>0-9</read>
+		</transition>
+		<transition>
+			<from>2</from>
+			<to>6</to>
 			<read>*</read>
 		</transition>
 		<transition>
@@ -81,24 +96,19 @@
 			<read>-</read>
 		</transition>
 		<transition>
-			<from>3</from>
-			<to>6</to>
-			<read>*</read>
-		</transition>
-		<transition>
-			<from>2</from>
-			<to>9</to>
-			<read>e,E</read>
-		</transition>
-		<transition>
 			<from>8</from>
-			<to>9</to>
-			<read>e,E</read>
+			<to>5</to>
+			<read>*</read>
 		</transition>
 		<transition>
-			<from>2</from>
-			<to>6</to>
-			<read>*</read>
+			<from>0</from>
+			<to>2</to>
+			<read>0</read>
+		</transition>
+		<transition>
+			<from>1</from>
+			<to>2</to>
+			<read>0</read>
 		</transition>
 		<transition>
 			<from>10</from>
@@ -107,38 +117,28 @@
 		</transition>
 		<transition>
 			<from>1</from>
-			<to>2</to>
-			<read>0</read>
-		</transition>
-		<transition>
-			<from>8</from>
-			<to>5</to>
-			<read>*</read>
-		</transition>
-		<transition>
-			<from>2</from>
-			<to>7</to>
-			<read>.</read>
-		</transition>
-		<transition>
-			<from>1</from>
 			<to>3</to>
 			<read>1-9</read>
 		</transition>
 		<transition>
+			<from>9</from>
+			<to>10</to>
+			<read>-,+</read>
+		</transition>
+		<transition>
+			<from>2</from>
+			<to>9</to>
+			<read>e,E</read>
+		</transition>
+		<transition>
 			<from>0</from>
-			<to>2</to>
-			<read>0</read>
+			<to>3</to>
+			<read>1-9</read>
 		</transition>
 		<transition>
 			<from>3</from>
 			<to>7</to>
 			<read>.</read>
-		</transition>
-		<transition>
-			<from>0</from>
-			<to>3</to>
-			<read>1-9</read>
 		</transition>
 		<transition>
 			<from>3</from>
@@ -151,9 +151,14 @@
 			<read>0-9</read>
 		</transition>
 		<transition>
-			<from>9</from>
+			<from>11</from>
 			<to>11</to>
 			<read>0-9</read>
+		</transition>
+		<transition>
+			<from>3</from>
+			<to>6</to>
+			<read>*</read>
 		</transition>
 	</automaton>
 </structure>

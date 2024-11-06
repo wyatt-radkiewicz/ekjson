@@ -409,7 +409,7 @@ static EKJSON_INLINE ejtok_t *number(state_t *const state) {
 		{ 9 , 9 , 9 , 9 , 5 , 5 , 6  },
 		{ 11, 7 , 7 , 11, 8 , 8 , 11 },
 		{ 11, 11, 11, 11, 8 , 8 , 11 },
-		{ 9 , 9 , 9 , 9 , 9 , 9 , 9  },
+		{ 9 , 9 , 9 , 9 , 8 , 8 , 9  },
 	};
 #else // EKJSON_SPACE_EFFICIENT
 	// State transition table (big)
@@ -556,8 +556,8 @@ static EKJSON_INLINE ejtok_t *number(state_t *const state) {
 		  9 , 9 , 9 , 9 , 9 , 9 , 9 , 9 ,
 		  9 , 9 , 9 , 9 , 9 , 9 , 9 , 9 ,
 		  9 , 9 , 9 , 9 , 9 , 9 , 9 , 9 ,
-		  9 , 9 , 9 , 9 , 9 , 9 , 9 , 9 ,
-		  9 , 9 , 9 , 9 , 9 , 9 , 9 , 9 ,
+		  8 , 8 , 8 , 8 , 8 , 8 , 8 , 8 ,
+		  8 , 8 , 9 , 9 , 9 , 9 , 9 , 9 ,
 		  9 , 9 , 9 , 9 , 9 , 9 , 9 , 9 ,
 		  9 , 9 , 9 , 9 , 9 , 9 , 9 , 9 ,
 		  9 , 9 , 9 , 9 , 9 , 9 , 9 , 9 ,
@@ -1185,11 +1185,13 @@ typedef struct float_inf {
 } float_inf_t;
 
 static float_inf_t hpfmul(const float_inf_t lhs, const float_inf_t rhs) {
-	__uint128_t x = (__uint128_t)lhs.sig * rhs.sig;
+	const __uint128_t x = (__uint128_t)lhs.sig * rhs.sig;
 	const bool carry = x >> 127;
+
 	return (float_inf_t){
 		.sig = x >> (63 + carry),
 		.exp = lhs.exp + rhs.exp + carry,
+		.sign = lhs.sign,
 	};
 }
 
@@ -1207,33 +1209,32 @@ static float_inf_t ten2e(int e) {
 	});
 }
 
-static double hpf2dbl(const float_inf_t *f) {
-	union {
-		double d;
-		uint64_t u;
-	} cvt;
-
-	cvt.u = (uint64_t)f->sign << 63;
-	cvt.u |= ((uint64_t)f->exp + 1023) << 52;
-	cvt.u |= (f->sig << 1) >> 12;
-
+static double hpf2dbl(float_inf_t f) {
+	union { double d; uint64_t u; } cvt;
+	cvt.u = (uint64_t)f.sign << 63;
+	cvt.u |= ((uint64_t)f.exp + 1023) << 52;
+	cvt.u |= (f.sig << 1) >> 12;
 	return cvt.d;
 }
 
 static double testflt(const float_inf_t *f, int error) {
 	// Normalize float info
 	const int lz = clz(f->sig);
-	const float_inf_t out = hpfmul((float_inf_t){
+	float_inf_t out = hpfmul((float_inf_t){
 		.sig = f->sig << lz,
 		.exp = 63 - lz,
+		.sign = f->sign,
 	}, ten2e(f->exp));
 	const int error_area = f->sig & 0x7FF;
 
 	if (error_area - error <= 0x3FF && error_area + error >= 0x3FF) {
 		return 0.0;
-	} else {
-		return hpf2dbl(&out);
+	} else if (error_area > 0x3FF) {
+		out.sig = (out.sig & ~0x7FF) + 0x800;
+		out.exp += out.sig == 0;
 	}
+
+	return hpf2dbl(out);
 }
 
 static int parsebase10_all(const char **src, uint64_t *out, bool *overflow) {
@@ -1320,10 +1321,18 @@ double ejflt(const char *src) {
 		return testflt(&f, 4);
 	}
 
-	if (f.exp >= 0 && f.exp < 23) return (double)f.sig * exact[f.exp];
-	else if (f.exp < 0 && f.exp > -23) return (double)f.sig/exact[-f.exp];
-	else if (f.exp >= 0) return testflt(&f, 0);
-	else return testflt(&f, 3);
+	if (f.exp > -23 && f.exp < 23) {
+		double computed;
+
+		if (f.exp < 0) computed = (double)f.sig / exact[-f.exp];
+		else computed = (double)f.sig * exact[f.exp];
+
+		return f.sign ? -computed : computed;
+	} else if (f.exp >= 0) {
+		return testflt(&f, 0);
+	} else {
+		return testflt(&f, 3);
+	}
 }
 
 // Returns whether the boolean is true or false
