@@ -951,6 +951,7 @@ static const test_t tests[] = {
 	TEST_ADD(pass_float_1)
 	TEST_ADD(pass_float_max)
 	TEST_ADD(pass_float_min)
+	TEST_PAD
 	TEST_ADD(pass_int_neg1)
 	TEST_ADD(pass_int_0)
 	TEST_ADD(pass_int_1)

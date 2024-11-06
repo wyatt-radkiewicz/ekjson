@@ -1313,7 +1313,7 @@ double ejflt(const char *src) {
 
 	float_inf_t f = parsefloatinfo(src);
 
-	if (f.sig == 0 || f.exp < -330) return 0.0;
+	if (f.sig == 0 || f.exp < -308) return 0.0;
 	else if (f.exp > 308) return f.sign ? -1.0 / 0.0 : 1.0 / 0.0;
 
 	if (f.overflow) {
