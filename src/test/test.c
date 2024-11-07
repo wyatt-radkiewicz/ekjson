@@ -60,9 +60,8 @@
 	CHECK_START \
 		CHECK_BASE(_type, _size, _len) \
 	CHECK_END
-#define CHECK_FLOAT(_size, _num) \
-	CHECK_START \
-		CHECK_BASE(EJFLT, _size, 1) \
+#define CHECK_FLOAT_RELAXED(_num) \
+	{ \
 		const double num = ejflt(__src + toks[__idx].start); \
 		if (num != (double)_num) { \
 			if (!dopass) return true; \
@@ -72,6 +71,11 @@
 				*(uint64_t *)&(num)); \
 			return false; \
 		} \
+	}
+#define CHECK_FLOAT(_size, _num) \
+	CHECK_START \
+		CHECK_BASE(EJFLT, _size, 1) \
+		CHECK_FLOAT_RELAXED(_num) \
 	CHECK_END
 #define CHECK_INT(_size, _num) \
 	CHECK_START \
@@ -240,6 +244,15 @@ PASS_SETUP(float_max, "1.7976931348623157e+308", 64)
 PASS_END
 PASS_SETUP(float_min, "-1.7976931348623157e+308", 64)
 	CHECK_FLOAT(0, -0x1.fffffffffffffp+1023)
+PASS_END
+PASS_SETUP(float_nodot_e, "123e1", 64)
+	CHECK_FLOAT_RELAXED(0x1.338p+10)
+PASS_END
+PASS_SETUP(float_dot_noe, "1230.0", 64)
+	CHECK_FLOAT_RELAXED(0x1.338p+10)
+PASS_END
+PASS_SETUP(float_nodot_noe, "1230", 64)
+	CHECK_FLOAT_RELAXED(0x1.338p+10)
 PASS_END
 PASS_SETUP(float_bignum, "1.4411518807585591598e+28", 64)
 	CHECK_FLOAT(0, 0x1.74876e8000002p+93)
@@ -924,6 +937,10 @@ static void test_ejint_speed(void) {
 static void test_ejflt_speed(void) {
 	static const char *const strings[] = {
 		"0.0", "-1.0",
+		"12341234", "123412345678", "1234",
+		"1", "12", "123", "123412",
+		"93941.123401",
+		"1.23000034",
 		"1234.0", "-1234.0",
 		"12345678.0", "-12345678.0",
 		"9223372036854775807.0", "-9223372036854775808.0",
@@ -1022,6 +1039,9 @@ static const test_t tests[] = {
 	TEST_ADD(pass_float_1)
 	TEST_ADD(pass_float_max)
 	TEST_ADD(pass_float_min)
+	TEST_ADD(pass_float_nodot_e)
+	TEST_ADD(pass_float_dot_noe)
+	TEST_ADD(pass_float_nodot_noe)
 	TEST_ADD(pass_float_bignum)
 	TEST_ADD(pass_float_bignumsig)
 	TEST_ADD(pass_float_bignumsig2)
