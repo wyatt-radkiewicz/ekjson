@@ -65,7 +65,7 @@
 		const double num = ejflt(__src + toks[__idx].start); \
 		if (num != (double)_num) { \
 			if (!dopass) return true; \
-			fprintf(stderr, "token %d num: %.20f != %.20f\n", \
+			fprintf(stderr, "token %d num: %lg != %lg\n", \
 				__idx, num, (double)_num); \
 			fprintf(stderr, "double (hex): %llX\n", \
 				*(uint64_t *)&(num)); \
@@ -828,7 +828,7 @@ static void test_ejstr_speed(void) {
 					test_strings[i]);
 		}
 		time = (double)(clock() - start) / CLOCKS_PER_SEC;
-		printf("strcmp  throughput: %.2f GB/s\n",
+		printf("strcmp  throughput: %.2lf GB/s\n",
 			len / (time / niters));
 
 		// naive strlen
@@ -837,7 +837,7 @@ static void test_ejstr_speed(void) {
 			_total_len += byte_strlen(test_strings[i]);
 		}
 		time = (double)(clock() - start) / CLOCKS_PER_SEC;
-		printf("bstrlen throughput: %.2f GB/s\n",
+		printf("bstrlen throughput: %.2lf GB/s\n",
 			len / (time / niters));
 
 		// ejstr
@@ -848,7 +848,7 @@ static void test_ejstr_speed(void) {
 		time = (double)(clock() - start) / CLOCKS_PER_SEC;
 		
 		tps[0][i] = len / (time / niters);
-		printf("ejstr   throughput: %.2f GB/s\n", tps[0][i]);
+		printf("ejstr   throughput: %.2lf GB/s\n", tps[0][i]);
 
 		// ejcmp
 		start = clock();
@@ -858,12 +858,12 @@ static void test_ejstr_speed(void) {
 		time = (double)(clock() - start) / CLOCKS_PER_SEC;
 		
 		tps[1][i] = len / (time / niters);
-		printf("ejcmp   throughput: %.2f GB/s\n", tps[1][i]);
+		printf("ejcmp   throughput: %.2lf GB/s\n", tps[1][i]);
 	}
 
 	for (int f = 0; f < arrlen(tps); f++) {
 		for (int i = 0; i < arrlen(tps[f]); i++) {
-			printf("%.2f,\t", tps[f][i]);
+			printf("%.2lf,\t", tps[f][i]);
 		}
 		printf("\n");
 	}
@@ -901,9 +901,9 @@ static void test_ejint_speed(void) {
 		}
 	}
 	time = (double)(clock() - start) / (double)CLOCKS_PER_SEC;
-	printf("strtoll %d iters time (s): %.4f\n", niters, time);
-	printf("strtoll throughput (GB/s): %.2f\n", ngigs / time);
-	printf("strtoll throughput (millions N/s): %.2f\n",
+	printf("strtoll %d iters time (s): %.4lf\n", niters, time);
+	printf("strtoll throughput (GB/s): %.2lf\n", ngigs / time);
+	printf("strtoll throughput (millions N/s): %.2lf\n",
 		((double)(niters * nums) / 1000000.0) / time);
 	
 	// test atoll
@@ -915,9 +915,9 @@ static void test_ejint_speed(void) {
 		}
 	}
 	time = (double)(clock() - start) / (double)CLOCKS_PER_SEC;
-	printf("atoll %d iters time (s): %.4f\n", niters, time);
-	printf("atoll throughput (GB/s): %.2f\n", ngigs / time);
-	printf("atoll throughput (millions N/s): %.2f\n",
+	printf("atoll %d iters time (s): %.4lf\n", niters, time);
+	printf("atoll throughput (GB/s): %.2lf\n", ngigs / time);
+	printf("atoll throughput (millions N/s): %.2lf\n",
 		((double)(niters * nums) / 1000000.0) / time);
 
 	// test ejint
@@ -928,9 +928,9 @@ static void test_ejint_speed(void) {
 		}
 	}
 	time = (double)(clock() - start) / (double)CLOCKS_PER_SEC;
-	printf("ejint %d iters time (s): %.4f\n", niters, time);
-	printf("ejint throughput (GB/s): %.2f\n", ngigs / time);
-	printf("ejint throughput (millions N/s): %.2f\n",
+	printf("ejint %d iters time (s): %.4lf\n", niters, time);
+	printf("ejint throughput (GB/s): %.2lf\n", ngigs / time);
+	printf("ejint throughput (millions N/s): %.2lf\n",
 		((double)(niters * nums) / 1000000.0) / time);
 }
 
@@ -975,9 +975,9 @@ static void test_ejflt_speed(void) {
 		}
 	}
 	time = (double)(clock() - start) / (double)CLOCKS_PER_SEC;
-	printf("strtod %d iters time (s): %.4f\n", niters, time);
-	printf("strtod throughput (GB/s): %.2f\n", ngigs / time);
-	printf("strtod throughput (millions N/s): %.2f\n",
+	printf("strtod %d iters time (s): %.4lf\n", niters, time);
+	printf("strtod throughput (GB/s): %.2lf\n", ngigs / time);
+	printf("strtod throughput (millions N/s): %.2lf\n",
 		((double)(niters * nums) / 1000000.0) / time);
 	
 	// test atof
@@ -989,9 +989,9 @@ static void test_ejflt_speed(void) {
 		}
 	}
 	time = (double)(clock() - start) / (double)CLOCKS_PER_SEC;
-	printf("atof  %d iters time (s): %.4f\n", niters, time);
-	printf("atof  throughput (GB/s): %.2f\n", ngigs / time);
-	printf("atof  throughput (millions N/s): %.2f\n",
+	printf("atof  %d iters time (s): %.4lf\n", niters, time);
+	printf("atof  throughput (GB/s): %.2lf\n", ngigs / time);
+	printf("atof  throughput (millions N/s): %.2lf\n",
 		((double)(niters * nums) / 1000000.0) / time);
 
 	// test ejflt
@@ -1002,9 +1002,9 @@ static void test_ejflt_speed(void) {
 		}
 	}
 	time = (double)(clock() - start) / (double)CLOCKS_PER_SEC;
-	printf("ejflt %d iters time (s): %.4f\n", niters, time);
-	printf("ejflt throughput (GB/s): %.2f\n", ngigs / time);
-	printf("ejflt throughput (millions N/s): %.2f\n",
+	printf("ejflt %d iters time (s): %.4lf\n", niters, time);
+	printf("ejflt throughput (GB/s): %.2lf\n", ngigs / time);
+	printf("ejflt throughput (millions N/s): %.2lf\n",
 		((double)(niters * nums) / 1000000.0) / time);
 }
 
@@ -1199,11 +1199,6 @@ void usage(void) {
 }
 
 int main(int argc, char **argv) {
-	//double d = ejflt("4.75e200");
-	//printf("%20.20f\n", d);
-	//printf("0x%llX\n", *(uint64_t *)&d);
-	//return 0;
-
 	bool speed_test = false;
 
 	if (argc > 2) {
