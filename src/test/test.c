@@ -241,8 +241,17 @@ PASS_END
 PASS_SETUP(float_min, "-1.7976931348623157e+308", 64)
 	CHECK_FLOAT(0, -0x1.fffffffffffffp+1023)
 PASS_END
-PASS_SETUP(float_bignum, "14411518807585590636123412341.0", 64)
+PASS_SETUP(float_bignum, "1.4411518807585591598e+28", 64)
 	CHECK_FLOAT(0, 0x1.74876e8000002p+93)
+PASS_END
+PASS_SETUP(float_bignumsig, "14411518807585590636123412341.0", 64)
+	CHECK_FLOAT(0, 0x1.74876e8000002p+93)
+PASS_END
+PASS_SETUP(float_bignumsig2, "184467440737095516178.0", 64)
+	CHECK_FLOAT(0, 0x1.4p+67)
+PASS_END
+PASS_SETUP(float_bignumsig3, "18446744073799551615.0", 64)
+	CHECK_FLOAT(0, 0x1.00000000055d5p+64)
 PASS_END
 
 // Round down tests
@@ -1014,6 +1023,9 @@ static const test_t tests[] = {
 	TEST_ADD(pass_float_max)
 	TEST_ADD(pass_float_min)
 	TEST_ADD(pass_float_bignum)
+	TEST_ADD(pass_float_bignumsig)
+	TEST_ADD(pass_float_bignumsig2)
+	TEST_ADD(pass_float_bignumsig3)
 	TEST_PAD
 	TEST_ADD(pass_float_round_down1)
 	TEST_ADD(pass_float_round_down2)

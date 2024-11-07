@@ -1050,10 +1050,11 @@ convert:
 
 // Precalculate all the powers of 10 for the integer parser
 static const uint64_t u64pows[] = {
-	1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000,
-	1000000000, 10000000000, 100000000000, 1000000000000, 10000000000000,
-	100000000000000, 1000000000000000, 10000000000000000,
-	100000000000000000, 1000000000000000000,
+	1ull, 10ull, 100ull, 1000ull, 10000ull, 100000ull, 1000000ull,
+	10000000ull, 100000000ull, 1000000000ull, 10000000000ull,
+	100000000000ull, 1000000000000ull, 10000000000000ull,
+	100000000000000ull, 1000000000000000ull, 10000000000000000ull,
+	100000000000000000ull, 1000000000000000000ull, 10000000000000000000ull
 };
 
 // Parse base10 integer while rounding when overflow occurs
@@ -1242,6 +1243,15 @@ static int parsebase10_all(const char **src, uint64_t *out, bool *overflow) {
 	
 	if (*overflow) {
 		*src += ndigits = parsebase10_round(*src, out, overflow);
+
+		// So usually we will actually return the number of digits
+		// parsed, but there becomes a problem when we overflow. Code
+		// that depends on this assumes that overflow will always
+		// occur at the 20 digit mark, which isn't always the case so
+		// to make that code happy, we add 1 if we overflowed at 19
+		// digits. This happens in situations where we are like 1 or 2
+		// above uint64_t max
+		ndigits += ndigits == 19;
 		for (;**src >= '0' && **src <= '9'; ++*src, ++ndigits);
 		return ndigits;
 	} else {
@@ -1252,10 +1262,9 @@ static int parsebase10_all(const char **src, uint64_t *out, bool *overflow) {
 
 static void parsefrac(const char **src, float_inf_t *f) {
 	uint64_t frac, sig_backup = f->sig;
-	const char *src_backup = *src;
+	const char *src_backup = ++*src;
 	bool overflow;
 
-	++*src;
 	const int n = parsebase10_all(src, &frac, &overflow);
 	f->overflow |= overflow;
 
@@ -1286,7 +1295,9 @@ static float_inf_t parsefloatinfo(const char *src) {
 	src += f.sign = *src == '-';
 	f.exp = 0;
 
-	parsebase10_all(&src, &f.sig, &f.overflow);
+	const int n = parsebase10_all(&src, &f.sig, &f.overflow);
+	if (f.overflow && n >= 20) f.exp = n - 20;
+
 	if (*src == '.') parsefrac(&src, &f);
 	
 	if ((*src & 0x4F) == 'E') {
