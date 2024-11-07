@@ -1225,11 +1225,11 @@ static double testflt(const float_inf_t *f, int error) {
 		.exp = 63 - lz,
 		.sign = f->sign,
 	}, ten2e(f->exp));
-	const int error_area = f->sig & 0x7FF;
+	const int error_area = out.sig & 0x7FF;
 
-	if (error_area - error <= 0x3FF && error_area + error >= 0x3FF) {
+	if (error_area - error <= 0x400 && error_area + error >= 0x400) {
 		return 0.0;
-	} else if (error_area > 0x3FF) {
+	} else if (error_area > 0x400) {
 		out.sig = (out.sig & ~0x7FF) + 0x800;
 		out.exp += out.sig == 0;
 	}
@@ -1316,7 +1316,7 @@ double ejflt(const char *src) {
 	if (f.sig == 0 || f.exp < -308) return 0.0;
 	else if (f.exp > 308) return f.sign ? -1.0 / 0.0 : 1.0 / 0.0;
 
-	if (f.overflow) {
+	if (f.overflow || f.sig >> 53) {
 		if (f.exp >= 0) return testflt(&f, 1);
 		return testflt(&f, 4);
 	}
