@@ -1080,7 +1080,7 @@ static int parsebase10_round(const char *src, uint64_t *out, bool *overflow) {
 overflow:
 	// Add 1 more to output to round up if the last digit was 5 or over
 	*overflow = true;
-	*out = last + src[-1] >= '5';
+	*out = last + (*--src >= '5');
 	return src - start;
 }
 
@@ -1238,13 +1238,12 @@ static double testflt(const float_inf_t *f, int error) {
 }
 
 static int parsebase10_all(const char **src, uint64_t *out, bool *overflow) {
-	const int ndigits = parsebase10(*src, out, overflow);
+	int ndigits = parsebase10(*src, out, overflow);
 	
 	if (*overflow) {
-		*src += parsebase10_round(*src, out, overflow);
-		int extra_zeros = 0;
-		for (;**src >= '0' && **src <= '9'; ++*src, ++extra_zeros);
-		return ndigits + extra_zeros;
+		*src += ndigits = parsebase10_round(*src, out, overflow);
+		for (;**src >= '0' && **src <= '9'; ++*src, ++ndigits);
+		return ndigits;
 	} else {
 		*src += ndigits;
 		return ndigits;

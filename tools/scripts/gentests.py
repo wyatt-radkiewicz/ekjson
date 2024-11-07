@@ -16,7 +16,7 @@ def round_test(i: int, slop_percent: float):
 
 def print_round_test(name_postfix: str, i: int, read: float, written: float):
     print(f'PASS_SETUP(float_{name_postfix}, "{round_test(i, read)}.0", 64)')
-    print(f'\tCHECK_FLOAT(0, {round_test(i, written)}.0)')
+    print(f'\tCHECK_FLOAT(0, {float.hex(float(round_test(i, written)))})')
     print(f'PASS_END')
 
 print('// Round down tests')
