@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 #include <time.h>
 
 #include "../ekjson.h"
@@ -323,6 +324,64 @@ PASS_SETUP(float_round_up8, "288230376151711798.0", 64)
 PASS_END
 PASS_SETUP(float_round_up9, "324259173170675766.0", 64)
 	CHECK_FLOAT(0, 0x1.2000000000001p+58)
+PASS_END
+
+// Tie to even (down) tests
+PASS_SETUP(float_tie_down1, "18014398509481986.0", 64)
+	CHECK_FLOAT(0, 0x1.0000000000000p+54)
+PASS_END
+PASS_SETUP(float_tie_down2, "36028797018963972.0", 64)
+	CHECK_FLOAT(0, 0x1.0000000000000p+55)
+PASS_END
+PASS_SETUP(float_tie_down3, "54043195528445956.0", 64)
+	CHECK_FLOAT(0, 0x1.8000000000000p+55)
+PASS_END
+PASS_SETUP(float_tie_down4, "72057594037927944.0", 64)
+	CHECK_FLOAT(0, 0x1.0000000000000p+56)
+PASS_END
+PASS_SETUP(float_tie_down5, "90071992547409928.0", 64)
+	CHECK_FLOAT(0, 0x1.4000000000000p+56)
+PASS_END
+PASS_SETUP(float_tie_down6, "108086391056891912.0", 64)
+	CHECK_FLOAT(0, 0x1.8000000000000p+56)
+PASS_END
+PASS_SETUP(float_tie_down7, "126100789566373896.0", 64)
+	CHECK_FLOAT(0, 0x1.c000000000000p+56)
+PASS_END
+PASS_SETUP(float_tie_down8, "144115188075855888.0", 64)
+	CHECK_FLOAT(0, 0x1.0000000000000p+57)
+PASS_END
+PASS_SETUP(float_tie_down9, "162129586585337872.0", 64)
+	CHECK_FLOAT(0, 0x1.2000000000000p+57)
+PASS_END
+
+// Tie to even (up) tests
+PASS_SETUP(float_tie_up1, "18014398509481990.0", 64)
+	CHECK_FLOAT(0, 0x1.0000000000002p+54)
+PASS_END
+PASS_SETUP(float_tie_up2, "36028797018963980.0", 64)
+	CHECK_FLOAT(0, 0x1.0000000000002p+55)
+PASS_END
+PASS_SETUP(float_tie_up3, "54043195528445964.0", 64)
+	CHECK_FLOAT(0, 0x1.8000000000002p+55)
+PASS_END
+PASS_SETUP(float_tie_up4, "72057594037927960.0", 64)
+	CHECK_FLOAT(0, 0x1.0000000000002p+56)
+PASS_END
+PASS_SETUP(float_tie_up5, "90071992547409944.0", 64)
+	CHECK_FLOAT(0, 0x1.4000000000002p+56)
+PASS_END
+PASS_SETUP(float_tie_up6, "108086391056891928.0", 64)
+	CHECK_FLOAT(0, 0x1.8000000000002p+56)
+PASS_END
+PASS_SETUP(float_tie_up7, "126100789566373912.0", 64)
+	CHECK_FLOAT(0, 0x1.c000000000002p+56)
+PASS_END
+PASS_SETUP(float_tie_up8, "144115188075855920.0", 64)
+	CHECK_FLOAT(0, 0x1.0000000000002p+57)
+PASS_END
+PASS_SETUP(float_tie_up9, "162129586585337904.0", 64)
+	CHECK_FLOAT(0, 0x1.2000000000002p+57)
 PASS_END
 
 PASS_SETUP(int_neg1, "-1", 64)
@@ -687,7 +746,7 @@ static bool pass_ejstr_overflow2(unsigned test) {
 	return true;
 }
 
-extern const char hell1_escaped[], hell1_string[];
+extern char hell1_escaped[], hell1_string[];
 extern size_t hell1_size;
 static bool pass_ejstr_hell1(unsigned test) {
 	char buf[1024];
@@ -696,7 +755,7 @@ static bool pass_ejstr_hell1(unsigned test) {
 	return true;
 }
 
-extern const char hell2_escaped[], hell2_string[];
+extern char hell2_escaped[], hell2_string[];
 extern size_t hell2_size;
 static bool pass_ejstr_hell2(unsigned test) {
 	char buf[4096];
@@ -705,20 +764,20 @@ static bool pass_ejstr_hell2(unsigned test) {
 	return true;
 }
 
-extern const char hell3[];
+extern char hell3[];
 static bool pass_ejstr_hell3(unsigned test) {
 	static ejtok_t t[16384];
 	return !ejparse(hell3, t, arrlen(t)).err;
 }
 
-extern const char hell4[];
+extern char hell4[];
 static bool pass_ejstr_hell4(unsigned test) {
 	static ejtok_t t[16384];
 	return !ejparse(hell4, t, arrlen(t)).err;
 }
 
 static char buf[1024*1024];
-extern const char hell5_escaped[], hell5_string[];
+extern char hell5_escaped[], hell5_string[];
 extern size_t hell5_size;
 static bool pass_ejstr_hell5(unsigned test) {
 	if (ejstr(hell5_escaped, buf, sizeof(buf)) != hell5_size) return TEST_BAD;
@@ -793,20 +852,20 @@ static size_t byte_strlen(const char *str) {
 	return len;
 }
 
-extern const char speed_test_normal[], speed_test_quoted[],
+extern char speed_test_normal[], speed_test_quoted[],
 		speed_test_utf[], speed_test_script[];
-extern const char *const speed_str_normal, *const speed_str_quoted,
-		*const speed_str_utf, *const speed_str_script;
+extern char *speed_str_normal, *speed_str_quoted,
+		*speed_str_utf, *speed_str_script;
 static void test_ejstr_speed(void) {
 	volatile size_t _total_len = 0;
-	static const char *test_strings[4] = {
+	char *test_strings[4] = {
 		speed_test_normal, speed_test_quoted,
 		speed_test_utf, speed_test_script,
 	};
-	static const char *test_names[4] = {
+	char *test_names[4] = {
 		"normal", "quotes", "utf", "script"
 	};
-	const char *cmp_strings[4] = {
+	char *cmp_strings[4] = {
 		speed_str_normal, speed_str_quoted,
 		speed_str_utf, speed_str_script,
 	};
@@ -869,22 +928,18 @@ static void test_ejstr_speed(void) {
 	}
 }
 
+extern char *int_strings[];
+extern int64_t int_numbers[];
+extern size_t int_strings_len;
 static void test_ejint_speed(void) {
-	static const char *const strings[] = {
-		"0", "-1", "1234", "-1234", "12345678", "-12345678",
-		"9223372036854775807", "-9223372036854775808",
-		"9223372036854775900", "-9223372036854775900",
-	};
-	static const int64_t numbers[] = {
-		0, -1, 1234, -1234, 12345678, -12345678,
-		INT64_MAX, INT64_MIN, INT64_MAX, INT64_MIN,
-	};
-
-	static const int niters = 10000000, nums = 10;
+	static const int niters = 10000000;
+	volatile uint32_t no_optimize = 0;
 
 	// Calculate number of bytes
 	double ngigs = 0;
-	for (int j = 0; j < nums; j++) ngigs += strlen(strings[j]);
+	for (int j = 0; j < int_strings_len; j++) {
+		ngigs += strlen(int_strings[j]);
+	}
 	ngigs *= niters;
 	ngigs /= 1024 * 1024 * 1024;
 
@@ -896,69 +951,54 @@ static void test_ejint_speed(void) {
 	// test strtoll
 	start = clock();
 	for (int i = 0; i < niters; i++) {
-		for (int j = 0; j < nums; j++) {
-			strtoll(strings[j], NULL, 10);
+		for (int j = 0; j < int_strings_len; j++) {
+			no_optimize += strtoll(int_strings[j], NULL, 10);
 		}
 	}
 	time = (double)(clock() - start) / (double)CLOCKS_PER_SEC;
 	printf("strtoll %d iters time (s): %.4lf\n", niters, time);
 	printf("strtoll throughput (GB/s): %.2lf\n", ngigs / time);
 	printf("strtoll throughput (millions N/s): %.2lf\n",
-		((double)(niters * nums) / 1000000.0) / time);
+		((double)(niters * int_strings_len) / 1000000.0) / time);
 	
 	// test atoll
 	start = clock();
-	volatile uint64_t n = 0;
 	for (int i = 0; i < niters; i++) {
-		for (int j = 0; j < nums; j++) {
-			n += atoll(strings[j]);
+		for (int j = 0; j < int_strings_len; j++) {
+			no_optimize += atoll(int_strings[j]);
 		}
 	}
 	time = (double)(clock() - start) / (double)CLOCKS_PER_SEC;
-	printf("atoll %d iters time (s): %.4lf\n", niters, time);
-	printf("atoll throughput (GB/s): %.2lf\n", ngigs / time);
-	printf("atoll throughput (millions N/s): %.2lf\n",
-		((double)(niters * nums) / 1000000.0) / time);
+	printf("atoll   %d iters time (s): %.4lf\n", niters, time);
+	printf("atoll   throughput (GB/s): %.2lf\n", ngigs / time);
+	printf("atoll   throughput (millions N/s): %.2lf\n",
+		((double)(niters * int_strings_len) / 1000000.0) / time);
 
 	// test ejint
 	start = clock();
 	for (int i = 0; i < niters; i++) {
-		for (int j = 0; j < nums; j++) {
-			ejint(strings[j]);
+		for (int j = 0; j < int_strings_len; j++) {
+			no_optimize += ejint(int_strings[j]);
 		}
 	}
 	time = (double)(clock() - start) / (double)CLOCKS_PER_SEC;
-	printf("ejint %d iters time (s): %.4lf\n", niters, time);
-	printf("ejint throughput (GB/s): %.2lf\n", ngigs / time);
-	printf("ejint throughput (millions N/s): %.2lf\n",
-		((double)(niters * nums) / 1000000.0) / time);
+	printf("ejint   %d iters time (s): %.4lf\n", niters, time);
+	printf("ejint   throughput (GB/s): %.2lf\n", ngigs / time);
+	printf("ejint   throughput (millions N/s): %.2lf\n",
+		((double)(niters * int_strings_len) / 1000000.0) / time);
 }
 
+extern char *flt_strings[];
+extern size_t flt_strings_len;
 static void test_ejflt_speed(void) {
-	static const char *const strings[] = {
-		"0.0", "-1.0",
-		"12341234", "123412345678", "1234",
-		"1", "12", "123", "123412",
-		"93941.123401",
-		"1.23000034",
-		"1234.0", "-1234.0",
-		"12345678.0", "-12345678.0",
-		"9223372036854775807.0", "-9223372036854775808.0",
-		"9223372036854775900.0", "-9223372036854775900.0",
-		"50.12345678", "-50.12345678",
-		"50e10", "50e-10",
-		"50.12345678e100", "50.12345678e100",
-		"50.12345678e10", "50.12345678e10",
-		"50.12345678e-10", "50.12345678e-10",
-		"50.12345678e-100", "50.12345678e-100",
-		"501234567812341234123412341212341234.0",
-	};
-
-	static const int niters = 2500000, nums = arrlen(strings);
+	static const int niters = 2500000;
+	volatile uint32_t no_optimize = 0;
 
 	// Calculate number of bytes
 	double ngigs = 0.0;
-	for (int j = 0; j < nums; j++) ngigs += strlen(strings[j]);
+	for (int j = 0; j < flt_strings_len; j++) {
+		ngigs += strlen(flt_strings[j]);
+	}
 	ngigs *= niters;
 	ngigs /= 1024 * 1024 * 1024;
 
@@ -967,45 +1007,44 @@ static void test_ejflt_speed(void) {
 	double time;
 	printf("\n\nejflt tests\n");
 
-	// test strtoll
+	// test strtod
 	start = clock();
 	for (int i = 0; i < niters; i++) {
-		for (int j = 0; j < nums; j++) {
-			strtod(strings[j], NULL);
+		for (int j = 0; j < flt_strings_len; j++) {
+			no_optimize += strtod(flt_strings[j], NULL);
 		}
 	}
 	time = (double)(clock() - start) / (double)CLOCKS_PER_SEC;
 	printf("strtod %d iters time (s): %.4lf\n", niters, time);
 	printf("strtod throughput (GB/s): %.2lf\n", ngigs / time);
 	printf("strtod throughput (millions N/s): %.2lf\n",
-		((double)(niters * nums) / 1000000.0) / time);
+		((double)(niters * flt_strings_len) / 1000000.0) / time);
 	
 	// test atof
 	start = clock();
-	volatile uint64_t n = 0;
 	for (int i = 0; i < niters; i++) {
-		for (int j = 0; j < nums; j++) {
-			n += atof(strings[j]);
+		for (int j = 0; j < flt_strings_len; j++) {
+			no_optimize += atof(flt_strings[j]);
 		}
 	}
 	time = (double)(clock() - start) / (double)CLOCKS_PER_SEC;
-	printf("atof  %d iters time (s): %.4lf\n", niters, time);
-	printf("atof  throughput (GB/s): %.2lf\n", ngigs / time);
-	printf("atof  throughput (millions N/s): %.2lf\n",
-		((double)(niters * nums) / 1000000.0) / time);
+	printf("atof   %d iters time (s): %.4lf\n", niters, time);
+	printf("atof   throughput (GB/s): %.2lf\n", ngigs / time);
+	printf("atof   throughput (millions N/s): %.2lf\n",
+		((double)(niters * flt_strings_len) / 1000000.0) / time);
 
 	// test ejflt
 	start = clock();
 	for (int i = 0; i < niters; i++) {
-		for (int j = 0; j < nums; j++) {
-			ejflt(strings[j]);
+		for (int j = 0; j < flt_strings_len; j++) {
+			no_optimize += ejflt(flt_strings[j]);
 		}
 	}
 	time = (double)(clock() - start) / (double)CLOCKS_PER_SEC;
-	printf("ejflt %d iters time (s): %.4lf\n", niters, time);
-	printf("ejflt throughput (GB/s): %.2lf\n", ngigs / time);
-	printf("ejflt throughput (millions N/s): %.2lf\n",
-		((double)(niters * nums) / 1000000.0) / time);
+	printf("ejflt  %d iters time (s): %.4lf\n", niters, time);
+	printf("ejflt  throughput (GB/s): %.2lf\n", ngigs / time);
+	printf("ejflt  throughput (millions N/s): %.2lf\n",
+		((double)(niters * flt_strings_len) / 1000000.0) / time);
 }
 
 static const test_t tests[] = {
@@ -1066,6 +1105,26 @@ static const test_t tests[] = {
 	TEST_ADD(pass_float_round_up7)
 	TEST_ADD(pass_float_round_up8)
 	TEST_ADD(pass_float_round_up9)
+	TEST_PAD
+	TEST_ADD(pass_float_tie_down1)
+	TEST_ADD(pass_float_tie_down2)
+	TEST_ADD(pass_float_tie_down3)
+	TEST_ADD(pass_float_tie_down4)
+	TEST_ADD(pass_float_tie_down5)
+	TEST_ADD(pass_float_tie_down6)
+	TEST_ADD(pass_float_tie_down7)
+	TEST_ADD(pass_float_tie_down8)
+	TEST_ADD(pass_float_tie_down9)
+	TEST_PAD
+	TEST_ADD(pass_float_tie_up1)
+	TEST_ADD(pass_float_tie_up2)
+	TEST_ADD(pass_float_tie_up3)
+	TEST_ADD(pass_float_tie_up4)
+	TEST_ADD(pass_float_tie_up5)
+	TEST_ADD(pass_float_tie_up6)
+	TEST_ADD(pass_float_tie_up7)
+	TEST_ADD(pass_float_tie_up8)
+	TEST_ADD(pass_float_tie_up9)
 	TEST_PAD
 	TEST_ADD(pass_int_neg1)
 	TEST_ADD(pass_int_0)
@@ -1199,6 +1258,8 @@ void usage(void) {
 }
 
 int main(int argc, char **argv) {
+	//1.000000000000000111022302463
+	//printf("%lf\n", d);
 	bool speed_test = false;
 
 	if (argc > 2) {

@@ -18,7 +18,7 @@ CFLAGS	:=$(CFLAGS) $(FLAGS) -std=gnu99
 CXXFLAGS:=$(CXXFLAGS) $(FLAGS) -std=c++11
 
 # Build the main executable
-$(OUT): $(OBJS) $(CXXOBJS)
+$(OUT): build-file-rules $(OBJS) $(CXXOBJS)
 	$(CXX) $(LDFLAGS) $^ -o $@
 	@if [[ $$(uname) == "Darwin" ]]; then\
 		install_name_tool -add_rpath $$PWD/jjson/lib $(OUT);\
@@ -32,9 +32,6 @@ $$(BUILD)/$(dir $(2))$(1)
 	$$(CC) $$(CFLAGS) -c $(2) -o $$@
 endef
 
-# Go through every source file use gcc to find its pre-reqs and create a rule
-$(foreach src,$(SRCS),$(eval $(call COMPILE,$(shell $(CC) $(CFLAGS) -M $(src) | tr -d '\\'),$(src))))
-
 # Remember that when this call is evaluated, it is expanded TWICE!
 define CXXCOMPILE
 $$(BUILD)/$(dir $(2))$(1)
@@ -43,6 +40,7 @@ $$(BUILD)/$(dir $(2))$(1)
 endef
 
 # Go through every source file use gcc to find its pre-reqs and create a rule
+$(foreach src,$(SRCS),$(eval $(call COMPILE,$(shell $(CC) $(CFLAGS) -M $(src) | tr -d '\\'),$(src))))
 $(foreach src,$(CXXSRCS),$(eval $(call CXXCOMPILE,$(shell $(CXX) $(CXXFLAGS) -M $(src) | tr -d '\\'),$(src))))
 
 # Clean the project directory

@@ -205,6 +205,66 @@ static size_t hex2utf8(const char *src, char out[static const 4]) {
 	}
 }
 
+#define FLTNAN (0.0 / 0.0) // Quiet nan
+#define FLTINF (1.0 / 0.0) // Infinity
+
+// High precision float used in ejflt. No sign information, will be passed
+// in other arguments
+typedef struct flt {
+	uint64_t mant;	// Normalized mantissa
+	int32_t e;	// Exponent
+} flt_t;
+
+// Convert high precision float to double with no error checking or rounding
+static double flt_dbl(const flt_t flt, const bool sign) {
+	// Use a union so we can set bits in the double according to the IEE754
+	union { double d; uint64_t u; } dbl;
+	dbl.u = (flt.mant << 1) >> 12;	// Mantissa
+	dbl.u |= (uint64_t)(flt.e + 1023) << 52; // Add exponent bias
+	dbl.u |= (uint64_t)sign << 63;	// Set sign bit
+	return dbl.d;
+}
+
+// Multiple 2 64bit mantissas and get high 64 bits back.
+// Since they are mantissas and normalized, they both have high bit set
+#if defined(__GNUC__) && defined(__SIZEOF_INT128__)
+static flt_t flt_mul(const flt_t x, const flt_t y) {
+	// Use 128 bit int to multiply
+	const __uint128_t a = (__uint128_t)x.mant * y.mant;
+
+	// See if result carried so we can normalize the result
+	const bool carried = a >> 127;
+
+	// Return high 64 bits
+	return (flt_t){
+		.mant = a >> (63 + carried),
+		.e = x.e + y.e + carried,
+	};
+}
+#else
+static flt_t flt_mul(const flt_t x, const flt_t y) {
+	// Get cross multiplies of each
+	const uint64_t lx_ly = (x & 0xFFFFFFFF)	* (y & 0xFFFFFFFF);
+	const uint64_t lx_hy = (x & 0xFFFFFFFF)	* (y >> 32);
+	const uint64_t hx_ly = (x >> 32)	* (y & 0xFFFFFFFF);
+	const uint64_t hx_hy = (x >> 32)	* (y >> 32);
+	const bool carried = hx_ly >> 63; // See if we carried
+
+	// Get high 64 bits
+	uint64_t mant = hx_hy + (lx_hy >> 32) + (hx_ly >> 32);
+	mant <<= !carried; // Normalize result
+
+	// Shift in last bit (if we have to)
+	mant |= (lx_ly + (lx_hy << 32) + (hx_ly << 32)) & carried;
+
+	// Return high 64 bits
+	return (flt_t){
+		.mant = mant >> (63 + carried),
+		.e = x.e + y.e + carried,
+	};
+}
+#endif
+
 // State used for ejstr function and escape function
 typedef struct ejstr_state {
 	const char *src;	// Where we are in the source
@@ -1048,52 +1108,32 @@ convert:
 }
 #endif
 
-// Precalculate all the powers of 10 for the integer parser
-static const uint64_t u64pows[] = {
-	1ull, 10ull, 100ull, 1000ull, 10000ull, 100000ull, 1000000ull,
-	10000000ull, 100000000ull, 1000000000ull, 10000000000ull,
-	100000000000ull, 1000000000000ull, 10000000000000ull,
-	100000000000000ull, 1000000000000000ull, 10000000000000000ull,
-	100000000000000000ull, 1000000000000000000ull, 10000000000000000000ull
-};
-
-// Parse base10 integer while rounding when overflow occurs
-// This goes byte by byte so it can see the last byte and round if
-// nessesary. Returns number of chars parsed. Stores overflow bool in out param
-static int parsebase10_round(const char *src, uint64_t *out, bool *overflow) {
-	const char *const start = src; // First digit
-	uint64_t last; // Save last digit we found
-	
-	*overflow = false; // Make sure overflow is false
+// Parses a stream of base10 digits
+// Returns number of chars parsed, if overflow, returns 0 chars parsed
+static EKJSON_ALWAYS_INLINE int parsebase10(const char *src,
+					uint64_t *const out) {
+#if EKJSON_NO_BITWISE
+	const char *const start = src;
 
 	// Loop through all the digits
-	for (*out = 0; *src >= '0' && *src <= '9'; last = *out) {
+	for (*out = 0; *src >= '0' && *src <= '9';) {
 		const int64_t d = *src++ - '0'; // Convert char to number
 
 		// Shift current value up by a decimal place
-		if (mul_overflow(*out, 10, out)) goto overflow;
-
-		// Add the new ones place we found
-		if (add_overflow(*out, d, out)) goto overflow;
+		// and add the new digit
+		if (mul_overflow(*out, 10, out)
+			|| add_overflow(*out, d, out)) goto overflow;
 	}
 
 	return src - start;
 overflow:
-	// Add 1 more to output to round up if the last digit was 5 or over
-	*overflow = true;
-	*out = last + (*--src >= '5');
-	return src - start;
-}
-
-// Parses a stream of base10 digits
-// Returns number of chars parsed. Stores if overflow occurred in overflow
-// flag
-// The value does NOT saturate
-static int parsebase10(const char *src, uint64_t *const out, bool *overflow) {
-#if EKJSON_NO_BITWISE
-	return parsebase10_round(src, out, overflow);
+	return 0;
 #else
-	*overflow = false;
+	// Powers of 10 to shift by
+	static const uint64_t pows[9] = {
+		1ull, 10ull, 100ull, 1000ull, 10000ull, 100000ull,
+		1000000ull, 10000000ull, 100000000ull,
+	};
 
 	uint64_t tmp; // Our num we are making, and curr number part (tmp)
 	int n;	// The number of right chars in the 8-byte sequence we parsed
@@ -1109,7 +1149,7 @@ static int parsebase10(const char *src, uint64_t *const out, bool *overflow) {
 	
 	// Make 'room' for the new digits we are adding by shifting the old
 	// ones by n number of decimal places and add the new digits
-	*out = *out * u64pows[n] + tmp;
+	*out = *out * pows[n] + tmp;
 	if (n < 8) return n + 8; // Return if we're sure we're at the end
 
 	// Since uint64_t can hold 16 digit values easily, we have to now check
@@ -1117,9 +1157,9 @@ static int parsebase10(const char *src, uint64_t *const out, bool *overflow) {
 	n = parsedigits8(src + 16, &tmp); // Put next 8 bytes into tmp
 	
 	// Do the same as above but check if we overflowed
-	*overflow = mul_overflow(*out, u64pows[n], out);
-	*overflow |= add_overflow(*out, tmp, out);
-	return n + 16; // Return number of digits parsed
+	bool ovf = mul_overflow(*out, pows[n], out);
+	ovf |= add_overflow(*out, tmp, out);
+	return (n + 16) * !ovf; // Return # of digits parsed or 0 if overflow
 #endif
 }
 
@@ -1129,220 +1169,213 @@ static int parsebase10(const char *src, uint64_t *const out, bool *overflow) {
 int64_t ejint(const char *const src) {
 	// What the sign of the number is
 	const bool sign = *src == '-';
-	bool overflow;	// parsebase10 stores overflow flag here
 
 	// The bound for the sign of the number
 	uint64_t bound = (uint64_t)INT64_MAX + sign, x;
-	
-	// Parse int and also increment source pointer if sign is negative
-	parsebase10(src + sign, &x, &overflow);
 
 	// Make sure it didn't also overflow the i64/u64 range,
 	// otherwise just return the correct sign
-	if (overflow || x > bound) return (int64_t)bound;
+	if (!parsebase10(src + sign, &x) || x > bound) return (int64_t)bound;
 	else return sign ? -(int64_t)x : (int64_t)x; // Apply sign
 }
 
 // Auto-generated by gentbl.py, don't touch, regenerate instead.
-// Fine table
-static const uint64_t ten2e_fine[] = {
-	0x8000000000000000, 0xA000000000000000,	// 1e0,  1e1
-	0xC800000000000000, 0xFA00000000000000,	// 1e2,  1e3
-	0x9C40000000000000, 0xC350000000000000,	// 1e4,  1e5
-	0xF424000000000000, 0x9896800000000000,	// 1e6,  1e7
-	0xBEBC200000000000, 0xEE6B280000000000,	// 1e8,  1e9
-	0x9502F90000000000, 0xBA43B74000000000,	// 1e10, 1e11
-	0xE8D4A51000000000, 0x9184E72A00000000,	// 1e12, 1e13
-	0xB5E620F480000000, 0xE35FA931A0000000,	// 1e14, 1e15
-	0x8E1BC9BF04000000, 0xB1A2BC2EC5000000,	// 1e16, 1e17
-	0xDE0B6B3A76400000, 0x8AC7230489E80000,	// 1e18, 1e19
-	0xAD78EBC5AC620000, 0xD8D726B7177A8000,	// 1e20, 1e21
-	0x878678326EAC9000, 0xA968163F0A57B400,	// 1e22, 1e23
-	0xD3C21BCECCEDA100, 0x84595161401484A0,	// 1e24, 1e25
-	0xA56FA5B99019A5C8, 0xCECB8F27F4200F3A,	// 1e26, 1e27
-};
+#define MANT_FINE_RANGE 28
+#define MANT_COARSE_MIN -330
+#define MANT_COARSE_MAX 310
 
-
-// Coarse table
-static const uint64_t ten2e_coarse[] = {
-	0xD953E8624B85DD78, 0xDB71E91432B1A24A,	// 1e-330, 1e-302
-	0xDD95317F31C7FA1D, 0xDFBDCECE67006AC9,	// 1e-274, 1e-246
-	0xE1EBCE4DC7F16DFB, 0xE41F3D6A7377EECA,	// 1e-218, 1e-190
-	0xE65829B3046B0AFA, 0xE896A0D7E51E1566,	// 1e-162, 1e-134
-	0xEADAB0ABA3B2DBE5, 0xED246723473E3813,	// 1e-106, 1e-78
-	0xEF73D256A5C0F77C, 0xF1C90080BAF72CB1,	// 1e-50,  1e-22
-	0xF424000000000000, 0xF684DF56C3E01BC6,	// 1e6,    1e34
-	0xF8EBAD2B84E0D58B, 0xFB5878494ACE3A5F,	// 1e62,   1e90
-	0xFDCB4FA002162A63, 0x802221226BE55A64,	// 1e118,  1e146
-	0x8161AFB94B44F57D, 0x82A45B450226B39C,	// 1e174,  1e202
-	0x83EA2B892091E44D, 0x8533285C936B35DE,	// 1e230,  1e258
-	0x867F59A9D4BED6C0,			// 1e286
-};
-
-typedef struct float_inf {
-	uint64_t sig;
-	int32_t exp;
-	bool sign, overflow;
-} float_inf_t;
-
-static float_inf_t hpfmul(const float_inf_t lhs, const float_inf_t rhs) {
-	const __uint128_t x = (__uint128_t)lhs.sig * rhs.sig;
-	const bool carry = x >> 127;
-
-	return (float_inf_t){
-		.sig = x >> (63 + carry),
-		.exp = lhs.exp + rhs.exp + carry,
-		.sign = lhs.sign,
+// Finds approximate 10^(e10) for a high precision float
+static flt_t ten2e(int32_t e10) {
+	// Auto-generated by gentbl.py, don't touch, regenerate instead.
+	// Fine table. These are exactly representable mantissas in 64 bits
+	static const uint64_t mant_fine[] = {
+		0x8000000000000000, 0xA000000000000000,	// 1e0,  1e1
+		0xC800000000000000, 0xFA00000000000000,	// 1e2,  1e3
+		0x9C40000000000000, 0xC350000000000000,	// 1e4,  1e5
+		0xF424000000000000, 0x9896800000000000,	// 1e6,  1e7
+		0xBEBC200000000000, 0xEE6B280000000000,	// 1e8,  1e9
+		0x9502F90000000000, 0xBA43B74000000000,	// 1e10, 1e11
+		0xE8D4A51000000000, 0x9184E72A00000000,	// 1e12, 1e13
+		0xB5E620F480000000, 0xE35FA931A0000000,	// 1e14, 1e15
+		0x8E1BC9BF04000000, 0xB1A2BC2EC5000000,	// 1e16, 1e17
+		0xDE0B6B3A76400000, 0x8AC7230489E80000,	// 1e18, 1e19
+		0xAD78EBC5AC620000, 0xD8D726B7177A8000,	// 1e20, 1e21
+		0x878678326EAC9000, 0xA968163F0A57B400,	// 1e22, 1e23
+		0xD3C21BCECCEDA100, 0x84595161401484A0,	// 1e24, 1e25
+		0xA56FA5B99019A5C8, 0xCECB8F27F4200F3A,	// 1e26, 1e27
 	};
-}
-
-static float_inf_t ten2e(int e) {
-#define ten2e_get_exp(e10) (((e10) * 217706) >> 16)
-	e += 330;
-	int fine = e % ARRLEN(ten2e_fine),
-		coarse = e / ARRLEN(ten2e_fine);
-	return hpfmul((float_inf_t){
-		.sig = ten2e_fine[fine],
-		.exp = ten2e_get_exp(fine),
-	}, (float_inf_t){
-		.sig = ten2e_coarse[coarse],
-		.exp = ten2e_get_exp((coarse * ARRLEN(ten2e_fine)) - 330),
-	});
-}
-
-static double hpf2dbl(float_inf_t f) {
-	union { double d; uint64_t u; } cvt;
-	cvt.u = (uint64_t)f.sign << 63;
-	cvt.u |= ((uint64_t)f.exp + 1023) << 52;
-	cvt.u |= (f.sig << 1) >> 12;
-	return cvt.d;
-}
-
-static double testflt(const float_inf_t *f, int error) {
-	// Normalize float info
-	const int lz = clz(f->sig);
-	float_inf_t out = hpfmul((float_inf_t){
-		.sig = f->sig << lz,
-		.exp = 63 - lz,
-		.sign = f->sign,
-	}, ten2e(f->exp));
-	const int error_area = out.sig & 0x7FF;
-
-	if (error_area - error <= 0x400 && error_area + error >= 0x400) {
-		return 0.0;
-	} else if (error_area > 0x400) {
-		out.sig = (out.sig & ~0x7FF) + 0x800;
-		out.exp += out.sig == 0;
-	}
-
-	return hpf2dbl(out);
-}
-
-static int parsebase10_all(const char **src, uint64_t *out, bool *overflow) {
-	int ndigits = parsebase10(*src, out, overflow);
 	
-	if (*overflow) {
-		*src += ndigits = parsebase10_round(*src, out, overflow);
+	
+	// Coarse table
+	static const uint64_t mant_coarse[] = {
+		0xD953E8624B85DD78, 0xDB71E91432B1A24A,	// 1e-330, 1e-302
+		0xDD95317F31C7FA1D, 0xDFBDCECE67006AC9,	// 1e-274, 1e-246
+		0xE1EBCE4DC7F16DFB, 0xE41F3D6A7377EECA,	// 1e-218, 1e-190
+		0xE65829B3046B0AFA, 0xE896A0D7E51E1566,	// 1e-162, 1e-134
+		0xEADAB0ABA3B2DBE5, 0xED246723473E3813,	// 1e-106, 1e-78
+		0xEF73D256A5C0F77C, 0xF1C90080BAF72CB1,	// 1e-50,  1e-22
+		0xF424000000000000, 0xF684DF56C3E01BC6,	// 1e6,    1e34
+		0xF8EBAD2B84E0D58B, 0xFB5878494ACE3A5F,	// 1e62,   1e90
+		0xFDCB4FA002162A63, 0x802221226BE55A64,	// 1e118,  1e146
+		0x8161AFB94B44F57D, 0x82A45B450226B39C,	// 1e174,  1e202
+		0x83EA2B892091E44D, 0x8533285C936B35DE,	// 1e230,  1e258
+		0x867F59A9D4BED6C0,			// 1e286
+	};
 
-		// So usually we will actually return the number of digits
-		// parsed, but there becomes a problem when we overflow. Code
-		// that depends on this assumes that overflow will always
-		// occur at the 20 digit mark, which isn't always the case so
-		// to make that code happy, we add 1 if we overflowed at 19
-		// digits. This happens in situations where we are like 1 or 2
-		// above uint64_t max
-		ndigits += ndigits == 19;
-		for (;**src >= '0' && **src <= '9'; ++*src, ++ndigits);
-		return ndigits;
+	// Bias the exponent for the coarse range
+	e10 -= MANT_COARSE_MIN;
+
+	// Use fine and coarse because 10^(x*y) = 10^x*10^y
+	int fine = e10 % MANT_FINE_RANGE, coarse = e10 / MANT_FINE_RANGE;
+
+	// Eq. is 2^(e2) = 10^(e10), solve it urself, you'll get linear exp.
+	return flt_mul(
+		(flt_t){ .mant = mant_fine[fine],
+			.e = (fine * 217706) >> 16 },
+		(flt_t){ .mant = mant_coarse[coarse],
+			.e = (coarse * MANT_FINE_RANGE * 217706) >> 16 }
+	);
+}
+
+// Parses exponent and adds it to the int pointed by exp.
+// src should point right after the 'e' character
+static void addexp(const char *src, int32_t *exp) {
+	uint64_t e; // Where to store the parsed exponent
+	
+	// Get the sign and check for either +/-
+	const bool esign = *src == '-';
+	src += esign | (*src == '+');
+
+	// Parse the exponent. Check early for obvious overflow, so we
+	// dont actually overflow the flt.e i32
+	if (!parsebase10(++src, &e) || e > 324) {
+		*exp = esign ? INT32_MIN : INT32_MAX;
 	} else {
-		*src += ndigits;
-		return ndigits;
+		*exp += esign ? -(int32_t)e : (int32_t)e;
 	}
 }
 
-static void parsefrac(const char **src, float_inf_t *f) {
-	uint64_t frac, sig_backup = f->sig;
-	const char *src_backup = ++*src;
-	bool overflow;
-
-	const int n = parsebase10_all(src, &frac, &overflow);
-	f->overflow |= overflow;
-
-	if (n < ARRLEN(u64pows)
-		&& !mul_overflow(f->sig, u64pows[n], &f->sig)
-		&& !add_overflow(f->sig, frac, &f->sig)) {
-		f->exp -= n;
-		return;
-	}
-	
-	// Slow path: multiply by 10 just before we overflow and then round
-	f->sig = sig_backup;
-	*src = src_backup;
-	
-	for (int64_t digit = *(*src)++ - '0';
-		!mul_overflow(f->sig, 10, &f->sig)
-		&& !add_overflow(f->sig, digit, &f->sig);
-		digit = *(*src)++ - '0', sig_backup = f->sig, --f->exp);
-
-	f->sig = sig_backup;
-	f->sig += (*src)[-1] >= '5';
-	for (;**src >= '0' && **src <= '9'; ++*src, --f->exp);
+// Slow path for parsing floats
+static double slowflt(const char *src, const bool sign) {
+	return 0.0;
 }
 
-static float_inf_t parsefloatinfo(const char *src) {
-	float_inf_t f;
+// Returns a quiet nan if it could not use the fast path to parse the float
+static double fastflt(const char *src, const bool sign) {
+	// Precalculated powers of 10 to shift the integer part of the
+	// significand by when parsing the fractional component
+	static const uint64_t shiftpows[] = {
+		1ull, 10ull, 100ull, 1000ull, 10000ull, 100000ull, 1000000ull,
+		10000000ull, 100000000ull, 1000000000ull, 10000000000ull,
+		100000000000ull, 1000000000000ull, 10000000000000ull,
+		100000000000000ull, 1000000000000000ull, 10000000000000000ull,
+		100000000000000000ull, 1000000000000000000ull,
+		10000000000000000000ull,
+	};
 
-	src += f.sign = *src == '-';
-	f.exp = 0;
-
-	const int n = parsebase10_all(&src, &f.sig, &f.overflow);
-	if (f.overflow && n >= 20) f.exp = n - 20;
-
-	if (*src == '.') parsefrac(&src, &f);
-	
-	if ((*src & 0x4F) == 'E') {
-		bool overflow, sign = *++src == '-';
-		uint64_t exp;
-
-		src += sign || *src == '+';
-		parsebase10(src, &exp, &overflow);
-
-		if (overflow) f.exp = sign ? INT32_MIN : INT32_MAX;
-		else f.exp += sign ? -exp : exp;
-	}
-
-	return f;
-}
-
-double ejflt(const char *src) {
+	// These are the powers of ten that can be exactly representable by
+	// a double precision floating point number
 	static const double exact[23] = {
 		1e0,  1e1,  1e2,  1e3,  1e4,  1e5,  1e6,  1e7,  1e8,  1e9,
 		1e10, 1e11, 1e12, 1e13, 1e14, 1e15, 1e16, 1e17, 1e18, 1e19,
-		1e20, 1e21, 1e22,
+		1e20, 1e21, 1e22
 	};
 
-	float_inf_t f = parsefloatinfo(src);
+	// First part the significand and the exponent. For now, these will be
+	// stored in a flt_t even though the 'mantissa' is not normalized.
+	// Another different thing here is that we also (temporarily) store the
+	// base 10 exponent here in the float (which should be base 2)
+	flt_t flt;
+	flt.e = 0;	// Setup float's exponent to be 10^0
 
-	if (f.sig == 0 || f.exp < -308) return 0.0;
-	else if (f.exp > 308) return f.sign ? -1.0 / 0.0 : 1.0 / 0.0;
+	int n;		// Number of digits parsed by parsebase10
 
-	if (f.overflow || f.sig >> 53) {
-		if (f.exp >= 0) return testflt(&f, 1);
-		return testflt(&f, 4);
+	// Parse the digits before the decimal and goto slow path if overflow
+	if (!(n = parsebase10(src, &flt.mant))) return FLTNAN;
+	src += n;
+
+	// Conditionally parse the fractional component
+	if (*src == '.') {
+		uint64_t frac;	// Where to store fractional part
+
+		// Shift significand and add fractional part on, while making
+		// sure not to overflow (abort to slow path)
+		if (!(n = parsebase10(++src, &frac))
+			|| mul_overflow(flt.mant, shiftpows[n], &flt.mant)
+			|| add_overflow(flt.mant, frac, &flt.mant)) {
+			return FLTNAN;
+		}
+
+		// Advance src, and subtract the exponent because we are
+		// storing the significand (no fractional part)
+		src += n, flt.e -= n;
 	}
 
-	if (f.exp > -23 && f.exp < 23) {
-		double computed;
+	// Conditionally parse an exponential
+	if ((*src & 0x40) == 'E') addexp(src + 1, &flt.e);
 
-		if (f.exp < 0) computed = (double)f.sig / exact[-f.exp];
-		else computed = (double)f.sig * exact[f.exp];
+	// Check for infinity, zero, denormals (not implemented yet), etc
+	if (flt.mant == 0 || flt.e < -308) return sign ? -0.0 : 0.0;
+	if (flt.e > 308) return sign ? -FLTINF : FLTINF;
 
-		return f.sign ? -computed : computed;
-	} else if (f.exp >= 0) {
-		return testflt(&f, 0);
+	// We within range of exactly representable powers of 10 for doubles?
+	const bool inrange = flt.e > -ARRLEN(exact) &&  flt.e < ARRLEN(exact);
+
+	// Maybe fast paths. Since the mantissa is either greater than the
+	// maximum, or the exponent is out of range we need higher precision
+	if (flt.mant >> 53 || !inrange) {
+		// These are how many units of error in the ULP we are off from
+		// the closest approximation of the floating point number we
+		// are trying to find. If e is out of the range of exactly
+		// representable 64 bit mantissas, then 
+		const int ulperr = (flt.e < 0 || flt.e >= MANT_FINE_RANGE) * 3;
+		
+		// Now convert flt from significand * 10^e to a normalized
+		// binary floating point representation
+		flt = flt_mul(flt, ten2e(flt.e));
+
+		// Now we get the bits after the last position and see if we
+		// are within range of '0.5'. If we are, then we must go slow
+		// path. (PS. 11 bits is how many we have after the lp)
+		const int lowbits = flt.mant & 0x7FF;
+		const int half = 0x400;	// 0.5 units in ulp
+
+		// Default to slow path if we are in the 0.5 range
+		if (lowbits - ulperr <= half
+			|| lowbits + ulperr >= half) return FLTNAN;
+
+		// Round up if nessesary
+		const bool rnd = lowbits > half;
+		flt.mant = (flt.mant & ~0x7FF) + (0x800 * rnd) | (1ull << 63);
+		flt.e += (flt.mant == (1ull << 63)) && rnd;
+		return flt_dbl(flt, sign);
 	} else {
-		return testflt(&f, 3);
+		// Really fast path. Here we can divide or multiply by exact
+		// powers of ten and guarentee exact results (if we have a
+		// normal cpu that is)
+
+		// Get the 'magnitude'
+		double mag;
+		if (flt.e >= 0) mag = flt.mant * exact[flt.e];
+		else mag = flt.mant / exact[-flt.e];
+
+		// Apply the sign
+		return mag * (sign ? -1.0 : 1.0);
 	}
+}
+
+// Returns the number token as a float. If the number is out of the range that
+// can be represented, it will return either +/-inf. This function will never
+// return nan. This function will also handle +/-0.0
+double ejflt(const char *src) {
+	// Get the sign and skip it
+	const bool sign = *src == '-';
+	src += sign;
+
+	// Try fast paths first and if they won't work use biguint and do slow
+	const double result = fastflt(src, sign);
+	if (result != FLTNAN) return result;
+	else return slowflt(src, sign);
 }
 
 // Returns whether the boolean is true or false

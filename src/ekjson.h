@@ -18,6 +18,9 @@
 // ekjson uses recurrsion so keep that in mind when setting this number
 #define EKJSON_MAX_DEPTH 64
 
+// Maximum number of base 10 digits in numbers for slow path of ejflt.
+#define EKJSON_MAX_SIG 512
+
 // A ekjson document is a collection of tokens representing the document
 // These tokens are only valid if you run ej* functions on them to ensure
 // validation. If its a object, key/value, or array token, then it is already
@@ -64,9 +67,11 @@ bool ejcmp(const char *tok_start, const char *cstr);
 // the int64_t range, it will saturate it to the closest limit.
 int64_t ejint(const char *tok_start);
 
-// Returns the number token as a float. If the number is out of the range that
-// can be represented, it will return either +/-inf. This function will never
-// return nan. This function will also handle +/-0.0
+// Returns the number token as a float. The number token can both be EJFLT and
+// EJINT. If the number is out of the range that can be represented, it will
+// return either +/-inf. If the number in tok_start has a significand
+// (after multiplying exponent) over EKJSON_MAX_SIG, then the function will
+// return nan.
 double ejflt(const char *tok_start);
 
 // Returns whether the boolean is true or false
