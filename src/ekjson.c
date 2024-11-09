@@ -1233,7 +1233,8 @@ static flt_t ten2e(int32_t e10) {
 		(flt_t){ .mant = mant_fine[fine],
 			.e = (fine * 217706) >> 16 },
 		(flt_t){ .mant = mant_coarse[coarse],
-			.e = (coarse * MANT_FINE_RANGE * 217706) >> 16 }
+			.e = ((coarse * MANT_FINE_RANGE + MANT_COARSE_MIN)
+				* 217706) >> 16 }
 	);
 }
 
@@ -1248,7 +1249,7 @@ static void addexp(const char *src, int32_t *exp) {
 
 	// Parse the exponent. Check early for obvious overflow, so we
 	// dont actually overflow the flt.e i32
-	if (!parsebase10(++src, &e) || e > 324) {
+	if (!parsebase10(src, &e) || e > 324) {
 		*exp = esign ? INT32_MIN : INT32_MAX;
 	} else {
 		*exp += esign ? -(int32_t)e : (int32_t)e;
@@ -1312,14 +1313,15 @@ static double fastflt(const char *src, const bool sign) {
 	}
 
 	// Conditionally parse an exponential
-	if ((*src & 0x40) == 'E') addexp(src + 1, &flt.e);
+	if ((*src & 0x4F) == 'E') addexp(src + 1, &flt.e);
 
 	// Check for infinity, zero, denormals (not implemented yet), etc
 	if (flt.mant == 0 || flt.e < -308) return sign ? -0.0 : 0.0;
 	if (flt.e > 308) return sign ? -FLTINF : FLTINF;
 
 	// We within range of exactly representable powers of 10 for doubles?
-	const bool inrange = flt.e > -ARRLEN(exact) &&  flt.e < ARRLEN(exact);
+	const bool inrange = flt.e > -(int32_t)ARRLEN(exact)
+		&& flt.e < (int32_t)ARRLEN(exact);
 
 	// Maybe fast paths. Since the mantissa is either greater than the
 	// maximum, or the exponent is out of range we need higher precision
@@ -1330,9 +1332,15 @@ static double fastflt(const char *src, const bool sign) {
 		// representable 64 bit mantissas, then 
 		const int ulperr = (flt.e < 0 || flt.e >= MANT_FINE_RANGE) * 3;
 		
+		// Count leading zeros so we can normalize the significand
+		const int lz = clz(flt.mant);
+
 		// Now convert flt from significand * 10^e to a normalized
 		// binary floating point representation
-		flt = flt_mul(flt, ten2e(flt.e));
+		flt = flt_mul((flt_t){
+			.mant = flt.mant << lz, // Normalize significand
+			.e = 63 - lz,		// Adjust binary exponent
+		}, ten2e(flt.e));		// Get decimal exponent
 
 		// Now we get the bits after the last position and see if we
 		// are within range of '0.5'. If we are, then we must go slow
@@ -1342,7 +1350,7 @@ static double fastflt(const char *src, const bool sign) {
 
 		// Default to slow path if we are in the 0.5 range
 		if (lowbits - ulperr <= half
-			|| lowbits + ulperr >= half) return FLTNAN;
+			&& lowbits + ulperr >= half) return FLTNAN;
 
 		// Round up if nessesary
 		const bool rnd = lowbits > half;

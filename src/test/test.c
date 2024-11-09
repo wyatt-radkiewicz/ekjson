@@ -1258,8 +1258,11 @@ void usage(void) {
 }
 
 int main(int argc, char **argv) {
-	//1.000000000000000111022302463
+	//double d = ejflt("1234");
 	//printf("%lf\n", d);
+	//printf("%llX\n", *(uint64_t *)&d);
+	//return 0;
+
 	bool speed_test = false;
 
 	if (argc > 2) {
