@@ -215,13 +215,33 @@ typedef struct flt {
 	int32_t e;	// Exponent
 } flt_t;
 
-// Convert high precision float to double with no error checking or rounding
-static double flt_dbl(const flt_t flt, const bool sign) {
+// Convert 96 bit float to double with no error checking or tieing to even
+// Requires a ulperr or error in units of last precision (of 64 bits that is)
+// so that it can return FLTNAN if there may be an ambigious tie to even case
+static double flt_dbl(flt_t flt, const int ulperr, const bool sign) {
+	// Now we get the bits after the last position and see if we
+	// are within range of '0.5'. If we are, then we must go slow
+	// path. (PS. 11 bits is how many we have after the lp)
+	const int lowbits = flt.mant & 0x7FF;
+	const int half = 0x400;			// 0.5 units in ulp
+
+	// Default to slow path if we are in the 0.5 range
+	if (lowbits - ulperr <= half
+		&& lowbits + ulperr >= half) return FLTNAN;
+
 	// Use a union so we can set bits in the double according to the IEE754
 	union { double d; uint64_t u; } dbl;
-	dbl.u = (flt.mant << 1) >> 12;	// Mantissa
-	dbl.u |= (uint64_t)(flt.e + 1023) << 52; // Add exponent bias
-	dbl.u |= (uint64_t)sign << 63;	// Set sign bit
+	dbl.u = (flt.mant << 1) >> 12;		// Mantissa
+	
+	// Round up if nessesary
+	const bool rnd = lowbits > half;
+	dbl.u += rnd;				// Actually add 1 to ulp
+	flt.e += dbl.u >> 52;			// Normalize (inc exponent)
+	dbl.u &= 0x000FFFFFFFFFFFFFull;		// Normailze
+
+	dbl.u |= (uint64_t)(flt.e + 1023) << 52;// Add exponent bias
+	dbl.u |= (uint64_t)sign << 63;		// Set sign bit
+	
 	return dbl.d;
 }
 
@@ -1205,7 +1225,6 @@ static flt_t ten2e(int32_t e10) {
 		0xA56FA5B99019A5C8, 0xCECB8F27F4200F3A,	// 1e26, 1e27
 	};
 	
-	
 	// Coarse table
 	static const uint64_t mant_coarse[] = {
 		0xD953E8624B85DD78, 0xDB71E91432B1A24A,	// 1e-330, 1e-302
@@ -1233,8 +1252,7 @@ static flt_t ten2e(int32_t e10) {
 		(flt_t){ .mant = mant_fine[fine],
 			.e = (fine * 217706) >> 16 },
 		(flt_t){ .mant = mant_coarse[coarse],
-			.e = ((coarse * MANT_FINE_RANGE + MANT_COARSE_MIN)
-				* 217706) >> 16 }
+			.e = ((e10 - fine + MANT_COARSE_MIN) * 217706) >> 16 }
 	);
 }
 
@@ -1323,18 +1341,19 @@ static double fastflt(const char *src, const bool sign) {
 	const bool inrange = flt.e > -(int32_t)ARRLEN(exact)
 		&& flt.e < (int32_t)ARRLEN(exact);
 
+	// Count leading zeros so we can normalize the significand and check if
+	// the mantissa can fit in the 52 bits of a normal double
+	const int lz = clz(flt.mant);
+
 	// Maybe fast paths. Since the mantissa is either greater than the
 	// maximum, or the exponent is out of range we need higher precision
-	if (flt.mant >> 53 || !inrange) {
+	if (lz < 12 || !inrange) {
 		// These are how many units of error in the ULP we are off from
 		// the closest approximation of the floating point number we
 		// are trying to find. If e is out of the range of exactly
 		// representable 64 bit mantissas, then 
 		const int ulperr = (flt.e < 0 || flt.e >= MANT_FINE_RANGE) * 3;
 		
-		// Count leading zeros so we can normalize the significand
-		const int lz = clz(flt.mant);
-
 		// Now convert flt from significand * 10^e to a normalized
 		// binary floating point representation
 		flt = flt_mul((flt_t){
@@ -1342,21 +1361,9 @@ static double fastflt(const char *src, const bool sign) {
 			.e = 63 - lz,		// Adjust binary exponent
 		}, ten2e(flt.e));		// Get decimal exponent
 
-		// Now we get the bits after the last position and see if we
-		// are within range of '0.5'. If we are, then we must go slow
-		// path. (PS. 11 bits is how many we have after the lp)
-		const int lowbits = flt.mant & 0x7FF;
-		const int half = 0x400;	// 0.5 units in ulp
-
-		// Default to slow path if we are in the 0.5 range
-		if (lowbits - ulperr <= half
-			&& lowbits + ulperr >= half) return FLTNAN;
-
-		// Round up if nessesary
-		const bool rnd = lowbits > half;
-		flt.mant = (flt.mant & ~0x7FF) + (0x800 * rnd) | (1ull << 63);
-		flt.e += (flt.mant == (1ull << 63)) && rnd;
-		return flt_dbl(flt, sign);
+		// Now just convert the high precision double we calculated to
+		// a lower precision (double precision). Returns NAN on ties
+		return flt_dbl(flt, ulperr, sign);
 	} else {
 		// Really fast path. Here we can divide or multiply by exact
 		// powers of ten and guarentee exact results (if we have a
@@ -1364,11 +1371,11 @@ static double fastflt(const char *src, const bool sign) {
 
 		// Get the 'magnitude'
 		double mag;
-		if (flt.e >= 0) mag = flt.mant * exact[flt.e];
-		else mag = flt.mant / exact[-flt.e];
+		if (flt.e >= 0) mag = (double)flt.mant * exact[flt.e];
+		else mag = (double)flt.mant / exact[-flt.e];
 
 		// Apply the sign
-		return mag * (sign ? -1.0 : 1.0);
+		return mag * ((double)sign * -2.0 + 1.0);
 	}
 }
 
