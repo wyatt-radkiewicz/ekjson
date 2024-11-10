@@ -18,8 +18,10 @@
 // ekjson uses recurrsion so keep that in mind when setting this number
 #define EKJSON_MAX_DEPTH 64
 
-// Maximum number of base 10 digits in numbers for slow path of ejflt.
-#define EKJSON_MAX_SIG 512
+// Maximum number of bits in numbers for slow path of ejflt
+// NOTE: This must be atleast a little bit above 1024 since the maximum
+// base 2 exponent in double precision floating point numbers is 1023
+#define EKJSON_MAX_SIG (1024 + 512)
 
 // A ekjson document is a collection of tokens representing the document
 // These tokens are only valid if you run ej* functions on them to ensure

@@ -1,3 +1,5 @@
+#include <limits.h>
+
 #include "ekjson.h"
 
 // Makes a u32 literal out of a list of characters (little endian)
@@ -203,6 +205,148 @@ static size_t hex2utf8(const char *src, char out[static const 4]) {
 		out[3] = 0x80 | (final & 0x3F);
 		return 4;
 	}
+}
+
+// Used in the slow path of ejflt parser to compare really big ints (> 2^1024)
+typedef struct bigint {
+	uint32_t len;
+	uint32_t dgts[EKJSON_MAX_SIG / 32];
+} bigint_t;
+
+// Shifts 'x' 'n' bits left. Returns true if an overflow occured
+static bool bigint_shl(bigint_t *x, const uint32_t n) {
+	// If x is already 0, then there is nothing to shift
+	if (x->len == 0) return false;
+
+	// How many whole digits to shift by
+	const uint32_t dgts = n / 32;
+
+	// How many bits to shift by in each digit
+	const uint32_t shift = n % 32;
+
+	// Update length of the bigint and check for overflow early
+	const uint32_t newlen = x->len + dgts + 1;
+	if (newlen >= ARRLEN(x->dgts)) return true;
+
+	uint32_t carry = 0;	// Carry for next digit
+	x->dgts[x->len++] = 0;	// Add new space to shift digits into
+	
+	// Shift each digit by 'shift' bits
+	for (uint32_t i = 0; i < x->len; i++) {
+		carry = x->dgts[i] >> (32 - shift);
+		x->dgts[i] <<= shift;
+	}
+
+	// Shift each digit themselves (memmove)
+	x->len = newlen;
+	for (uint32_t to = newlen - 1, from = newlen - 1 - dgts; 
+		to >= dgts; to--, from--) {
+		x->dgts[to] = x->dgts[from];
+	}
+
+	return false;
+}
+
+// Gets most significant 64 bits where the integer returned has the most
+// significant bit from the big int starting as the msb of the 64 bit int.
+// Rounds up for lower bits.
+static uint64_t bigint_ms64(const bigint_t *x) {
+	if (x->len == 0) return 0; // Return 0 if x is 0
+
+	// Get the msb digit
+	uint64_t y = x->dgts[x->len - 1];
+
+	// Find first 1 in the digit
+	const int offs = clz(y);
+
+	y <<= offs;	// Add the other (optional) parts
+	if (x->len > 1) y |= (uint64_t)x->dgts[x->len - 2] << offs;
+
+	// Get rounding bit
+	if (x->len > 2) {
+		uint64_t last = (uint64_t)x->dgts[x->len - 3] >> (31 - offs);
+		y |= last >> 1;
+		y += last & 1;	// Roudn up if the bit after last is 1
+	}
+
+	return y;
+}
+
+// Compare 2 bit ints. (sign of x - y)
+static int bigint_cmp(const bigint_t *x, const bigint_t *y) {
+	if (x->len != y->len) return x->len > y->len ? 1 : -1;
+	for (uint32_t i = x->len - 1; i < x->len; i--) {
+		if (x->dgts[i] != y->dgts[i]) {
+			return x->dgts[i] > y->dgts[i] ? 1 : -1;
+		}
+	}
+	return 0;
+}
+
+// Returns true if the bitint overflowed
+static bool bigint_add32(bigint_t *x, uint32_t y) {
+	for (uint32_t i = 0; i < x->len; i++) {
+		uint64_t res = x->dgts[i] + y;
+		x->dgts[i] = (uint32_t)res;
+		if (res >> 32) y = 1;
+		else return false;
+	}
+
+	if (x->len == ARRLEN(x->dgts)) return true;
+	x->dgts[x->len++] = y;
+	return false;
+}
+
+// Returns true if overflow occurred
+static bool bigint_mul(bigint_t *out, const bigint_t *x, const bigint_t *y) {
+	// Check for multiply by 0
+	if (x->len == 0 || y->len == 0) {
+		out->len = 0;
+		return false;
+	}
+
+	// Calculate new length (might need to add 1 due to carry)
+	out->len = x->len + y->len - 1;
+	if (out->len > ARRLEN(out->dgts)) return true;
+
+	uint64_t carry = 0;
+	for (uint32_t yd = 0; yd < y->len; yd++) {
+		for (uint32_t xd = 0; xd < x->len; x++) {
+			uint64_t mul = x->dgts[xd] * y->dgts[yd] + carry;
+			out->dgts[yd+xd] = mul;
+			carry += mul >> 32;
+		}
+
+		// Add final carry if nessesary and check for overflow
+		if (!carry) continue;
+		if (yd == y->len - 1
+			&& ++out->len == ARRLEN(out->dgts)) return true;
+		out->dgts[yd+x->len] = carry;
+	}
+	return false;
+}
+
+// Returns true if result is negative, result is always absolute distance
+// between x and y
+static bool bigint_sub(bigint_t *out, const bigint_t *x, const bigint_t *y) {
+	bool neg;
+	if ((neg = bigint_cmp(x, y) < 0)) {
+		const bigint_t *tmp = x;
+		x = y, y = tmp;
+	}
+
+	int carry = 0;
+	for (out->len = 0; out->len < x->len; out->len++) {
+		uint64_t xd = x->dgts[out->len] - (carry-- > 0),
+			yd = y->dgts[out->len];
+		if (xd < yd) {
+			xd += 1ull << 32;
+			for (carry = 1; !x->dgts[out->len + carry]; carry++);
+		}
+		out->dgts[out->len] = xd - yd;
+	}
+	for (; out->dgts[out->len - 1] == 0 && out->len > 0; out->len--);
+	return neg;
 }
 
 #define FLTNAN (0.0 / 0.0) // Quiet nan
