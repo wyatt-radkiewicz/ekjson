@@ -1624,7 +1624,7 @@ static double slowflt(const char *src, const bool sign) {
 	// know that because we already had more precsion than we needed for
 	// 53 bit floats, we are only 1 above or 1 under the float that we
 	// should get.
-	bigint_t m;
+	static bigint_t m;
 	bigint_set64(&m, bitdbl_sig(dbl) << 1 | 1);
 
 	// Bias the double back to normal to make mantissa an integer.
