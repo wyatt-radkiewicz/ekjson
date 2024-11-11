@@ -521,9 +521,9 @@ static bool flt_dbl(flt_t flt, const int ulperr,
 	// path. (PS. 11 bits is how many we have after the lp)
 	const int lowbits = flt.mant & 0x7FF;
 	const int half = 0x400;			// 0.5 units in ulp
-	const bool safe = lowbits - ulperr > half | lowbits + ulperr < half;
+	const bool safe = lowbits - ulperr > half || lowbits + ulperr < half;
 	
-	// Round up if nessesary
+	// Round up if nessesary (don't if this is a half way case)
 	const bool rnd = lowbits > half && safe;
 	out->u.m += rnd;			// Actually add 1 to ulp
 	flt.e += out->u.m == 0 && rnd;		// Normalize (inc exponent)
@@ -550,10 +550,8 @@ static flt_t flt_mul(const flt_t x, const flt_t y) {
 	};
 
 	// Check for overflow when rounding up
-	if (!(flt.mant += round)) {
-		flt.mant = 1ull << 63;
-		flt.e++;
-	}
+	flt.e += (flt.mant += round) == 0;
+	flt.mant |= (1ull << 63);
 	return flt;
 }
 #else
@@ -572,11 +570,16 @@ static flt_t flt_mul(const flt_t x, const flt_t y) {
 	// Shift in last bit (if we have to)
 	mant |= (lx_ly + (lx_hy << 32) + (hx_ly << 32)) & carried;
 
-	// Return high 64 bits
-	return (flt_t){
-		.mant = mant >> (63 + carried),
+	// Create unrounded result
+	flt_t flt = (flt_t){
+		.mant = mant,
 		.e = x.e + y.e + carried,
 	};
+
+	// Check for overflow when rounding up
+	flt.e += (flt.mant += round) == 0;
+	flt.mant |= (1ull << 63);
+	return flt;
 }
 #endif
 
@@ -1717,11 +1720,9 @@ static bool fastflt(const char *src, const bool sign, double *result) {
 	if ((*src & 0x4F) == 'E') addexp(src + 1, &flt.e);
 
 	// Check for infinity, zero, denormals (pass to slow route), etc
-	if (flt.mant == 0 || flt.e < -324) {
+	if (flt.mant == 0 || flt.e < -308) {
 		*result = sign ? -0.0 : 0.0;
-		return true;
-	} else if (flt.e < -308) {
-		return false;	// Slow path does denormals
+		return flt.e >= -308; // Slow path does denormals
 	} else if (flt.e > 308) {
 		*result = sign ? -FLTINF : FLTINF;
 		return true;
@@ -1760,12 +1761,11 @@ static bool fastflt(const char *src, const bool sign, double *result) {
 		// normal cpu that is)
 
 		// Get the 'magnitude'
-		double mag;
-		if (flt.e >= 0) mag = (double)flt.mant * exact[flt.e];
-		else mag = (double)flt.mant / exact[-flt.e];
+		if (flt.e >= 0) *result = (double)flt.mant * exact[flt.e];
+		else *result = (double)flt.mant / exact[-flt.e];
 
 		// Apply the sign
-		*result = mag * ((double)sign * -2.0 + 1.0);
+		*result *= ((double)sign * -2.0 + 1.0);
 		return true;
 	}
 }
