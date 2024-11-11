@@ -1137,10 +1137,12 @@ static ejtok_t *value(state_t *const state, const int depth) {
 // This is just a wrapper around the value parser
 // It just initializes the state and checks for error states
 ejresult_t ejparse(const char *src, ejtok_t *t, size_t nt) {
-	// Create initial state
+	// Create initial state. Set end to 1 minus the end since the functions
+	// in ejparse will overwrite at most 1 over the buffer given to it.
+	// This is done because its faster. :/
 	state_t state = {
 		.base = src, .src = src,
-		.tbase = t, .tend = t + nt, .t = t,
+		.tbase = t, .tend = t + nt - 1, .t = t,
 	};
 
 	// See if the value parsed correctly

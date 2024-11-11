@@ -102,6 +102,10 @@ static bool pass_nothing(unsigned id) {
 	ejtok_t toks[2];
 	return !ejparse("", toks, arrlen(toks)).err;
 }
+static bool fail_overflow(unsigned id) {
+	ejtok_t toks[2];
+	return ejparse("[[[]]]", toks, arrlen(toks)).ntoks != 2;
+}
 
 PASS_SETUP(array_array_array_empty, "[[[]]]", 64)
 	CHECK_SIMPLE(EJARR, 1, 3)
@@ -1051,6 +1055,7 @@ extern size_t flt_general_strings_len, flt_fast_strings_len,
 
 static const test_t tests[] = {
 	TEST_ADD(pass_nothing)
+	TEST_ADD(fail_overflow)
 	TEST_PAD
 	TEST_ADD(pass_array_array_array_empty)
 	TEST_ADD(pass_array_array_empty)
@@ -1282,10 +1287,10 @@ int main(int argc, char **argv) {
 	if (speed_test) {
 		//test_ejstr_speed();
 		//test_ejint_speed();
-		//test_ejflt_speed(2500000, "general",
-		//	flt_general_strings, flt_general_strings_len);
 		test_ejflt_speed(2500000, "fast",
 			flt_fast_strings, flt_fast_strings_len);
+		test_ejflt_speed(2500000, "general",
+			flt_general_strings, flt_general_strings_len);
 		//test_ejflt_speed(2500000, "slow",
 		//	flt_slow_strings, flt_slow_strings_len);
 	}
