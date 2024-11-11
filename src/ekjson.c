@@ -208,7 +208,84 @@ static size_t hex2utf8(const char *src, char out[static const 4]) {
 }
 
 #if defined(BIGINT_MAXWIDTH) && BIGINT_MAXWIDTH >= EKJSON_MAX_SIG
-#error bigint_t hasn't implemented _BitInt(EKJSON_MAX_SIG) impl yet
+typedef unsigned _BitInt(EKJSON_MAX_SIG) bigint_t;
+
+// Shifts 'x' 'n' bits left. Returns true if an overflow occured
+static bool bigint_shl(bigint_t *x, const uint32_t n) {
+	// TODO: Check for overflow
+	*x <<= n;
+}
+
+// Gets most significant 64 bits where the integer returned has the most
+// significant bit from the big int starting as the msb of the 64 bit int.
+// Rounds up for lower bits. Sets pos to what direction the result was shifted
+// to to normalize it
+static uint64_t bigint_ms64(const bigint_t *x, int32_t *pos) {
+	bigint_t y = *x;
+	
+	*pos = 0;
+	if (y == 0) {
+		return 0;
+	} else if (y >> 64) {
+		while (y >> 64) {
+			y >>= 1;
+			++*pos;
+		}
+	} else {
+		while (y & (1ull << 63)) {
+			y <<= 1;
+			--*pos;
+		}
+	}
+
+	return (uint64_t)y;
+}
+
+// Compare 2 bit ints. (sign of x - y)
+static int bigint_cmp(const bigint_t *x, const bigint_t *y) {
+	if (*x == *y) return 0;
+	else if (*x < *y) return -1;
+	else return 1;
+}
+
+// Returns true if the bitint overflowed
+static bool bigint_add32(bigint_t *x, uint64_t y) {
+	// TODO: Check for overflow
+	*x += y;
+}
+
+// Returns true if overflow occurred. If y is only 1 digit long, then x and out
+// can be aliased. Otherwise, they can not be aliased
+static EKJSON_ALWAYS_INLINE bool bigint_mul(bigint_t *out, const bigint_t *x,
+						const bigint_t *y) {
+	// TODO: Check for overflow
+	*out = *x * *y;
+}
+
+// Raises out to the power of 10 and returns if an overflow occurred
+static EKJSON_ALWAYS_INLINE bool bigint_pow10(bigint_t *out, uint32_t e) {
+	// Representation of powers of 10
+	static const uint64_t pows[] = {
+		1ull, 10ull, 100ull, 1000ull, 10000ull, 100000ull, 1000000ull,
+		10000000ull, 100000000ull, 1000000000ull, 10000000000ull,
+		100000000000ull, 1000000000000ull, 10000000000000ull,
+		100000000000000ull, 1000000000000000ull, 10000000000000000ull,
+		100000000000000000ull, 1000000000000000000ull,
+		10000000000000000000ull,
+	};
+	while (e >= ARRLEN(pows) - 1) {
+		// TODO: Check for overflow
+		*out *= pows[ARRLEN(pows) - 1];
+		e -= ARRLEN(pows) - 1;
+	}
+	*out *= pows[e];
+	return false;
+}
+
+// Sets a big int to the data of a u64
+static EKJSON_ALWAYS_INLINE void bigint_set64(bigint_t *out, uint64_t x) {
+	*out = x;
+}
 #else
 // Used in the slow path of ejflt parser to compare really big ints (> 2^1024)
 typedef struct bigint {
@@ -228,7 +305,7 @@ static bool bigint_shl(bigint_t *x, const uint32_t n) {
 	const uint32_t shift = n % 32;
 
 	// Update length of the bigint and check for overflow early
-	const uint32_t newlen = x->len + dgts + (n > 0);
+	uint32_t newlen = x->len + dgts + (n > 0);
 	if (newlen >= ARRLEN(x->dgts)) return true;
 
 	if (shift) {
@@ -241,6 +318,8 @@ static bool bigint_shl(bigint_t *x, const uint32_t n) {
 			x->dgts[i] = shifted | carry;
 			carry = shifted >> 32;
 		}
+
+		if (x->dgts[x->len - 1] == 0) x->len--, newlen--;
 	}
 
 	// Return if we don't need to shift the digits
@@ -361,13 +440,16 @@ static bool bigint_mul(bigint_t *out, const bigint_t *x, const bigint_t *y) {
 // Raises out to the power of 10 and returns if an overflow occurred
 static bool bigint_pow10(bigint_t *out, uint32_t e) {
 	// Bigint representation of powers of 10 in 1 digit
-	static const uint32_t pows[10][2] = {
+	static const uint32_t pows[][2] = {
 		{ 1, 1 }, { 1, 10u }, { 1, 100u }, { 1, 1000u }, { 1, 10000u },
 		{ 1, 100000u }, { 1, 1000000u }, { 1, 10000000u },
 		{ 1, 100000000u }, { 1, 1000000000u },
 	};
-	while (e >= 9) {
-		if (bigint_mul(out, out, (bigint_t *)pows[9])) return true;
+	while (e >= ARRLEN(pows) - 1) {
+		if (bigint_mul(out, out, (bigint_t *)pows[ARRLEN(pows) - 1])) {
+			return true;
+		}
+		e -= ARRLEN(pows) - 1;
 	}
 	if (bigint_mul(out, out, (bigint_t *)pows[e])) return true;
 	return false;
@@ -379,44 +461,7 @@ static void bigint_set64(bigint_t *out, uint64_t x) {
 	out->dgts[1] = x >> 32;
 	out->len = out->dgts[1] ? 2 : !!out->dgts[0];
 }
-
-// Returns true if result is negative, result is always absolute distance
-// between x and y
-static bool bigint_sub(bigint_t *out, const bigint_t *x, const bigint_t *y) {
-	// Swap x and y so that x is always bigger than y and if so set neg
-	bool neg;
-	if ((neg = bigint_cmp(x, y) < 0)) {
-		const bigint_t *tmp = x;
-		x = y, y = tmp;
-	}
-
-	int carry = 0;
-	for (out->len = 0; out->len < x->len; out->len++) {
-		// Get x and y digits (apply last carr(ies) to x)
-		uint64_t xd = x->dgts[out->len],
-			yd = y->dgts[out->len];
-	
-		// Set y to 0 when out of bounds
-		if (out->len >= y->len) yd = 0;
-
-		// Apply last carry to this one (subtract 1 from here)
-		if (carry-- > 0) {
-			if (xd) xd--;
-			else xd = (1ull << 32) - 1;
-		}
-
-		if (xd < yd) {			// Carry?
-			xd += 1ull << 32;	// Add 1 order of base to it
-			for (carry = 1; !x->dgts[out->len + carry]; carry++);
-		}
-		out->dgts[out->len] = xd - yd;	// Save subtraction
-	}
-
-	// Trim remaining zeros on the end
-	for (; out->dgts[out->len - 1] == 0 && out->len > 0; out->len--);
-	return neg;
-}
-#endif
+#endif // BITINT_MAXWIDTH
 
 #define FLTNAN (0.0 / 0.0) // Quiet nan
 #define FLTINF (1.0 / 0.0) // Infinity
@@ -459,24 +504,25 @@ typedef struct flt {
 // so that it can return false if it is an ambigious conversion
 static bool flt_dbl(flt_t flt, const int ulperr,
 		const bool sign, bitdbl_t *out) {
+	// Shift least significant bits off for mantissa and remove leading 1
+	out->u.m = flt.mant >> 11;
+	out->u.e = flt.e + 1023;	// Exponent with added bias
+	out->u.s = sign;
+
 	// Now we get the bits after the last position and see if we
 	// are within range of '0.5'. If we are, then we must go slow
 	// path. (PS. 11 bits is how many we have after the lp)
 	const int lowbits = flt.mant & 0x7FF;
 	const int half = 0x400;			// 0.5 units in ulp
-
-	// Shift least significant bits off for mantissa and remove leading 1
-	out->u.m = flt.mant >> 11;
-	out->u.e = flt.e + 1023;	// Exponent with added bias
-	out->u.s = sign;
+	const bool safe = lowbits - ulperr > half | lowbits + ulperr < half;
 	
 	// Round up if nessesary
-	const bool rnd = lowbits > half;
+	const bool rnd = lowbits > half && safe;
 	out->u.m += rnd;			// Actually add 1 to ulp
 	flt.e += out->u.m == 0 && rnd;		// Normalize (inc exponent)
 	
 	// Return false if we are in the 1/2 range
-	return lowbits - ulperr > half | lowbits + ulperr < half;
+	return safe;
 }
 
 // Multiple 2 64bit mantissas and get high 64 bits back.
@@ -488,12 +534,20 @@ static flt_t flt_mul(const flt_t x, const flt_t y) {
 
 	// See if result carried so we can normalize the result
 	const bool carried = a >> 127;
+	const bool round = a & 1ull << (63 - carried);
 
-	// Return high 64 bits
-	return (flt_t){
+	// Create unrounded result
+	flt_t flt = (flt_t){
 		.mant = a >> (63 + carried),
 		.e = x.e + y.e + carried,
 	};
+
+	// Check for overflow when rounding up
+	if (!(flt.mant += round)) {
+		flt.mant = 1ull << 63;
+		flt.e++;
+	}
+	return flt;
 }
 #else
 static flt_t flt_mul(const flt_t x, const flt_t y) {
@@ -583,7 +637,7 @@ static EKJSON_INLINE ejtok_t *string(state_t *const state, const int type) {
 		['"'] = 2, ['/'] = 3,
 		['0'] = 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
 		['A'] = 4, 4, 4, 4, 4, 4,
-		['\'] = 5, ['a'] = 4, ['b'] = 6,
+		['\\'] = 5, ['a'] = 4, ['b'] = 6,
 		['c'] = 4, 4, 4, ['f'] = 6, ['n'] = 3, ['r'] = 3,
 		['t'] = 3, ['u'] = 7,
 	};
@@ -1508,40 +1562,6 @@ static void addexp(const char *src, int32_t *exp) {
 	}
 }
 
-// Takes x (let f and e be exact integers, x=f*10^e) and y (let m and k be
-// integers y=m*2^k) and let g be a flt_t with m, k as normalized mantissa
-// and exponent g is a guess for the actual closest float representation that
-// must be at most 1 off
-static double compareflt(bigint_t x, bigint_t y, bitdbl_t g) {
-	const uint64_t mant = bitdbl_sig(g);
-	uint32_t m[3] = { 2, mant, mant >> 32 };
-
-	bigint_t d, d2;
-	const bool dneg = bigint_sub(&d, &x, &y);
-	if (bigint_mul(&d2, &d, (bigint_t *)m)) return FLTNAN;
-	if (bigint_shl(&d2, 1)) return FLTNAN;
-
-	const int cmp = bigint_cmp(&d2, &y);
-	if (bigint_shl(&d2, 1)) return FLTNAN;
-
-	if (cmp < 0) {
-		if (mant == 1ull << 52 && dneg
-			&& bigint_cmp(&d2, &y) < 0) bitdbl_prev(&g);
-	} else if (cmp == 0) {
-		if (mant & 1) {
-			if (dneg) bitdbl_prev(&g);
-			else bitdbl_next(&g);
-		} else if (mant == 1ull << 52 && dneg) {
-			bitdbl_prev(&g);
-		}
-	} else {
-		if (dneg) bitdbl_prev(&g);
-		else bitdbl_next(&g);
-	}
-
-	return g.d;
-}
-
 // Slow path for parsing floats. If even THIS overflows we just give up and
 // return NAN. I doub't anybody is passing in numbers over 200 sig-figs long,
 // besides that can't even be represented in double precision floats
@@ -1589,7 +1609,7 @@ static double slowflt(const char *src, const bool sign) {
 	// mantissas, then we are going to have a lot more error, and if flt.e
 	// is greater than 0, then we have a mantissa not exactly representable
 	// in 64 bits.
-	const int ulperr = (flt.e > 0) + (e < 0 || e >= MANT_FINE_RANGE) * 3;
+	const int ulperr = (flt.e > 63) + (e < 0 || e >= MANT_FINE_RANGE) * 3;
 
 	// Generate guess
 	flt = flt_mul(flt, ten2e(e));
@@ -1603,17 +1623,27 @@ static double slowflt(const char *src, const bool sign) {
 	// 53 bit floats, we are only 1 above or 1 under the float that we
 	// should get.
 	bigint_t m;
-	bigint_set64(&m, bitdbl_sig(dbl));
+	bigint_set64(&m, bitdbl_sig(dbl) << 1 | 1);
+
+	// Bias the double back to normal to make mantissa an integer.
+	// Also take into account the 1 we shifted up there
+	const int e2 = (int)dbl.u.e - 1023 - 52 - 1;
 
 	// Make sig and m both proportionally exact integers for what we
 	// should exactly get (sig*10^e) and what we have (m*2^dbl.e)
 	// Return FLTNAN if the numbers overflow
-	const int e2 = (int)dbl.u.e - 1023;	// Bias dbl.u.e back to normal
 	if (e >= 0 && bigint_pow10(&sig, e)
 		|| e < 0 && bigint_pow10(&m, -e)) return FLTNAN;
 	if (e2 >= 0 && bigint_shl(&m, e2)
 		|| e2 < 0 && bigint_shl(&sig, -e2)) return FLTNAN;
-	return compareflt(sig, m, dbl);
+	
+	const int cmp = bigint_cmp(&sig, &m);
+	switch (cmp) {
+	case -1: break;
+	case 1: bitdbl_next(&dbl); break;
+	default: if (dbl.u.m & 1) bitdbl_next(&dbl); break;
+	}
+	return dbl.d;
 }
 
 // Returns if it could use the fast path
