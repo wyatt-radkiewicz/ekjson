@@ -1382,10 +1382,29 @@ bool ejcmp(const char *src, const char *cstr) {
 	return *cstr == '\0';
 }
 
-#if !EKJSON_NO_BITWISE
 // Parses up to 8 digits and writes it to the out pointer. It how many of the
 // 8 bytes in this part of the string make up the number starting at the string
-static int parsedigits8(const char *const src, uint64_t *const out) {
+static int parsedigits8(const char *src, uint64_t *const out) {
+#if EKJSON_NO_BITWISE
+	*out = 0;
+	if (*src < '0' || *src > '9') return 0;
+	*out = *src++ - '0';
+	if (*src < '0' || *src > '9') return 1;
+	*out *= 10, *out += *src++ - '0';
+	if (*src < '0' || *src > '9') return 2;
+	*out *= 10, *out += *src++ - '0';
+	if (*src < '0' || *src > '9') return 3;
+	*out *= 10, *out += *src++ - '0';
+	if (*src < '0' || *src > '9') return 4;
+	*out *= 10, *out += *src++ - '0';
+	if (*src < '0' || *src > '9') return 5;
+	*out *= 10, *out += *src++ - '0';
+	if (*src < '0' || *src > '9') return 6;
+	*out *= 10, *out += *src++ - '0';
+	if (*src < '0' || *src > '9') return 7;
+	*out *= 10, *out += *src++ - '0';
+	return 8;
+#else
 	// Load up 8 bytes of the source and set default amount of right bytes
 	// A 'right' byte is a byte that is a digit between 0 - 9
 	uint64_t val = ldu64_unaligned(src), nright = 8;
@@ -1422,30 +1441,13 @@ convert:
 	val = (val & 0x0000FFFF0000FFFF) * (0x100000000 * 10000 + 1) >> 32;
 	*out = val;
 	return nright;
-}
 #endif
+}
 
 // Parses a stream of base10 digits
 // Returns number of chars parsed, if overflow, returns 0 chars parsed
 static EKJSON_ALWAYS_INLINE int parsebase10(const char *src,
 					uint64_t *const out) {
-#if EKJSON_NO_BITWISE
-	const char *const start = src;
-
-	// Loop through all the digits
-	for (*out = 0; *src >= '0' && *src <= '9';) {
-		const int64_t d = *src++ - '0'; // Convert char to number
-
-		// Shift current value up by a decimal place
-		// and add the new digit
-		if (mul_overflow(*out, 10, out)
-			|| add_overflow(*out, d, out)) goto overflow;
-	}
-
-	return src - start;
-overflow:
-	return 0;
-#else
 	// Powers of 10 to shift by
 	static const uint64_t pows[9] = {
 		1ull, 10ull, 100ull, 1000ull, 10000ull, 100000ull,
@@ -1477,7 +1479,6 @@ overflow:
 	bool ovf = mul_overflow(*out, pows[n], out);
 	ovf |= add_overflow(*out, tmp, out);
 	return (n + 16) * !ovf; // Return # of digits parsed or 0 if overflow
-#endif
 }
 
 // Returns the number token parsed as an int64_t. If there are decimals, it
@@ -1581,20 +1582,28 @@ static EKJSON_NO_INLINE double slowflt(const char *src, const bool sign) {
 
 	// Get significand (and parse fractional component)
 	sig.len = 0;		// Initialize significand
-	for (bool sawdot = false; *src >= '0' && *src <= '9' || *src == '.';) {
-		// Skip decimal points
-		if (*src == '.') {
-			if (sawdot) break;	// Don't do 2 decimal periods
-			sawdot = true;
-			src++;			// Skip dot
-			continue;
-		}
 
-		e -= sawdot; // Make the significand times e equal what we want
+	int n;			// Number of digits parsed in 1 run
+	do {
+		uint64_t run;
+		src += n = parsedigits8(src, &run); // Parse run of digits
 
-		// Shift sig left by decimal 10, and add new base 10 digit
-		if (bigint_pow10(&sig, 1)
-			|| bigint_add32(&sig, *src++ - '0')) return FLTNAN;
+		// Add these digits to the end
+		if (bigint_pow10(&sig, n)
+			|| bigint_add32(&sig, run)) return FLTNAN;
+	} while (n == 8); // Continue if we parsed max run
+
+	// Do fractional part if we have one to parse
+	if (*src == '.') {
+		do {
+			uint64_t run;
+			src += n = parsedigits8(src, &run);
+			e -= n; // Keep sig*10^e representative of actual num
+
+			// Add these digits to the end
+			if (bigint_pow10(&sig, n)
+				|| bigint_add32(&sig, run)) return FLTNAN;
+		} while (n == 8); // Continue if we parsed max run
 	}
 
 	// Conditionally parse an exponential
