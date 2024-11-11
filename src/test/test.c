@@ -1289,7 +1289,7 @@ int main(int argc, char **argv) {
 		//test_ejint_speed();
 		test_ejflt_speed(2500000, "fast",
 			flt_fast_strings, flt_fast_strings_len);
-		test_ejflt_speed(2500000, "slow",
+		test_ejflt_speed(5000000, "slow",
 			flt_slow_strings, flt_slow_strings_len);
 	}
 	return res;
