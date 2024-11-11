@@ -988,16 +988,14 @@ static void test_ejint_speed(void) {
 		((double)(niters * int_strings_len) / 1000000.0) / time);
 }
 
-extern char *flt_strings[];
-extern size_t flt_strings_len;
-static void test_ejflt_speed(void) {
-	static const int niters = 2500000;
+static void test_ejflt_speed(const int niters, const char *name,
+			char *volatile strings[], size_t strings_len) {
 	volatile uint32_t no_optimize = 0;
 
 	// Calculate number of bytes
 	double ngigs = 0.0;
-	for (int j = 0; j < flt_strings_len; j++) {
-		ngigs += strlen(flt_strings[j]);
+	for (int j = 0; j < strings_len; j++) {
+		ngigs += strlen(strings[j]);
 	}
 	ngigs *= niters;
 	ngigs /= 1024 * 1024 * 1024;
@@ -1005,47 +1003,51 @@ static void test_ejflt_speed(void) {
 	// test functions
 	clock_t start;
 	double time;
-	printf("\n\nejflt tests\n");
+	printf("\n\nejflt %s tests\n", name);
 
 	// test strtod
 	start = clock();
 	for (int i = 0; i < niters; i++) {
-		for (int j = 0; j < flt_strings_len; j++) {
-			no_optimize += strtod(flt_strings[j], NULL);
+		for (int j = 0; j < strings_len; j++) {
+			no_optimize += strtod(strings[j], NULL);
 		}
 	}
 	time = (double)(clock() - start) / (double)CLOCKS_PER_SEC;
 	printf("strtod %d iters time (s): %.4lf\n", niters, time);
 	printf("strtod throughput (GB/s): %.2lf\n", ngigs / time);
 	printf("strtod throughput (millions N/s): %.2lf\n",
-		((double)(niters * flt_strings_len) / 1000000.0) / time);
+		((double)(niters * strings_len) / 1000000.0) / time);
 	
 	// test atof
 	start = clock();
 	for (int i = 0; i < niters; i++) {
-		for (int j = 0; j < flt_strings_len; j++) {
-			no_optimize += atof(flt_strings[j]);
+		for (int j = 0; j < strings_len; j++) {
+			no_optimize += atof(strings[j]);
 		}
 	}
 	time = (double)(clock() - start) / (double)CLOCKS_PER_SEC;
 	printf("atof   %d iters time (s): %.4lf\n", niters, time);
 	printf("atof   throughput (GB/s): %.2lf\n", ngigs / time);
 	printf("atof   throughput (millions N/s): %.2lf\n",
-		((double)(niters * flt_strings_len) / 1000000.0) / time);
+		((double)(niters * strings_len) / 1000000.0) / time);
 
 	// test ejflt
 	start = clock();
 	for (int i = 0; i < niters; i++) {
-		for (int j = 0; j < flt_strings_len; j++) {
-			no_optimize += ejflt(flt_strings[j]);
+		for (int j = 0; j < strings_len; j++) {
+			no_optimize += ejflt(strings[j]);
 		}
 	}
 	time = (double)(clock() - start) / (double)CLOCKS_PER_SEC;
 	printf("ejflt  %d iters time (s): %.4lf\n", niters, time);
 	printf("ejflt  throughput (GB/s): %.2lf\n", ngigs / time);
 	printf("ejflt  throughput (millions N/s): %.2lf\n",
-		((double)(niters * flt_strings_len) / 1000000.0) / time);
+		((double)(niters * strings_len) / 1000000.0) / time);
 }
+
+extern char *flt_general_strings[], *flt_fast_strings[], *flt_slow_strings[];
+extern size_t flt_general_strings_len, flt_fast_strings_len,
+       flt_slow_strings_len;
 
 static const test_t tests[] = {
 	TEST_ADD(pass_nothing)
@@ -1258,11 +1260,6 @@ void usage(void) {
 }
 
 int main(int argc, char **argv) {
-	//double d = ejflt("1234");
-	//printf("%lf\n", d);
-	//printf("%llX\n", *(uint64_t *)&d);
-	//return 0;
-
 	bool speed_test = false;
 
 	if (argc > 2) {
@@ -1285,7 +1282,12 @@ int main(int argc, char **argv) {
 	if (speed_test) {
 		//test_ejstr_speed();
 		//test_ejint_speed();
-		test_ejflt_speed();
+		//test_ejflt_speed(2500000, "general",
+		//	flt_general_strings, flt_general_strings_len);
+		test_ejflt_speed(2500000, "fast",
+			flt_fast_strings, flt_fast_strings_len);
+		//test_ejflt_speed(2500000, "slow",
+		//	flt_slow_strings, flt_slow_strings_len);
 	}
 	return res;
 }
