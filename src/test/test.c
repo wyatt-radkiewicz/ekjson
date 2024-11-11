@@ -66,7 +66,7 @@
 		const double num = ejflt(__src + toks[__idx].start); \
 		if (num != (double)_num) { \
 			if (!dopass) return true; \
-			fprintf(stderr, "token %d num: %lg != %lg\n", \
+			fprintf(stderr, "token %d f: %20.20lf != %20.20lf\n",\
 				__idx, num, (double)_num); \
 			fprintf(stderr, "double (hex): %llX\n", \
 				*(uint64_t *)&(num)); \

@@ -228,16 +228,19 @@ static bool bigint_shl(bigint_t *x, const uint32_t n) {
 	const uint32_t shift = n % 32;
 
 	// Update length of the bigint and check for overflow early
-	const uint32_t newlen = x->len + dgts + 1;
+	const uint32_t newlen = x->len + dgts + (n > 0);
 	if (newlen >= ARRLEN(x->dgts)) return true;
 
-	uint32_t carry = 0;	// Carry for next digit
-	x->dgts[x->len++] = 0;	// Add new space to shift digits into
-	
-	// Shift each digit by 'shift' bits
-	for (uint32_t i = 0; i < x->len; i++) {
-		carry = x->dgts[i] >> (32 - shift);
-		x->dgts[i] <<= shift;
+	if (shift) {
+		uint32_t carry = 0;	// Carry for next digit
+		x->dgts[x->len++] = 0;	// Add new space to shift digits into
+		
+		// Shift each digit by 'shift' bits
+		for (uint32_t i = 0; i < x->len; i++) {
+			const uint64_t shifted = (uint64_t)x->dgts[i] << shift;
+			x->dgts[i] = shifted | carry;
+			carry = shifted >> 32;
+		}
 	}
 
 	// Return if we don't need to shift the digits
@@ -245,10 +248,11 @@ static bool bigint_shl(bigint_t *x, const uint32_t n) {
 	if (dgts == 0) return false;
 
 	// Shift each digit themselves (memmove)
-	for (uint32_t to = newlen - 1, from = newlen - 1 - dgts; 
-		to >= dgts; to--, from--) {
+	uint32_t to = newlen - 1, from = newlen - 1 - dgts;
+	for (; to >= dgts; to--, from--) {
 		x->dgts[to] = x->dgts[from];
 	}
+	for (; to < x->len; x->dgts[to--] = 0);
 
 	return false;
 }
@@ -371,9 +375,9 @@ static bool bigint_pow10(bigint_t *out, uint32_t e) {
 
 // Sets a big int to the data of a u64
 static void bigint_set64(bigint_t *out, uint64_t x) {
-	out->len = 2;
 	out->dgts[0] = x;
 	out->dgts[1] = x >> 32;
+	out->len = out->dgts[1] ? 2 : !!out->dgts[0];
 }
 
 // Returns true if result is negative, result is always absolute distance
@@ -389,8 +393,18 @@ static bool bigint_sub(bigint_t *out, const bigint_t *x, const bigint_t *y) {
 	int carry = 0;
 	for (out->len = 0; out->len < x->len; out->len++) {
 		// Get x and y digits (apply last carr(ies) to x)
-		uint64_t xd = x->dgts[out->len] - (carry-- > 0),
-			yd = y->dgts[out->len];	
+		uint64_t xd = x->dgts[out->len],
+			yd = y->dgts[out->len];
+	
+		// Set y to 0 when out of bounds
+		if (out->len >= y->len) yd = 0;
+
+		// Apply last carry to this one (subtract 1 from here)
+		if (carry-- > 0) {
+			if (xd) xd--;
+			else xd = (1ull << 32) - 1;
+		}
+
 		if (xd < yd) {			// Carry?
 			xd += 1ull << 32;	// Add 1 order of base to it
 			for (carry = 1; !x->dgts[out->len + carry]; carry++);
@@ -408,6 +422,31 @@ static bool bigint_sub(bigint_t *out, const bigint_t *x, const bigint_t *y) {
 #define FLTINF (1.0 / 0.0) // Infinity
 #define NOTNAN(X) ((X) == (X))
 
+// Used to create doubles using ieee754 representation
+typedef union bitdbl {
+	double d;			// To get the double as a double
+	struct {
+		uint64_t m : 52;	// 52 bit (implicit 1) mantissa
+		uint64_t e : 11;	// 11 bit (+1023 biased) exponent
+		uint64_t s : 1;		// Sign (true if negative)
+	} u;				// To set bits in the double
+} bitdbl_t;
+
+// Returns mantissa of bit double with implicit 1 added
+static EKJSON_ALWAYS_INLINE uint64_t bitdbl_sig(const bitdbl_t x) {
+	return x.u.m + (1ull << 52);
+}
+
+// Goes to closest 'previous' double
+static EKJSON_ALWAYS_INLINE void bitdbl_prev(bitdbl_t *x) {
+	x->u.e -= !x->u.m--;	// Decrement exponent if mantissa underflows
+}
+
+// Goes to closest 'next' double
+static EKJSON_ALWAYS_INLINE void bitdbl_next(bitdbl_t *x) {
+	x->u.e += !++x->u.m;	// Increment exponent if mantissa overflows
+}
+
 // High precision float used in ejflt. No sign information, will be passed
 // in other arguments
 typedef struct flt {
@@ -417,51 +456,27 @@ typedef struct flt {
 
 // Convert 96 bit float to double with no error checking or tieing to even
 // Requires a ulperr or error in units of last precision (of 64 bits that is)
-// so that it can return FLTNAN if there may be an ambigious tie to even case
-static double flt_dbl(flt_t flt, const int ulperr, const bool sign) {
+// so that it can return false if it is an ambigious conversion
+static bool flt_dbl(flt_t flt, const int ulperr,
+		const bool sign, bitdbl_t *out) {
 	// Now we get the bits after the last position and see if we
 	// are within range of '0.5'. If we are, then we must go slow
 	// path. (PS. 11 bits is how many we have after the lp)
 	const int lowbits = flt.mant & 0x7FF;
 	const int half = 0x400;			// 0.5 units in ulp
 
-	// Default to slow path if we are in the 0.5 range
-	if (lowbits - ulperr <= half
-		&& lowbits + ulperr >= half) return FLTNAN;
-
-	// Use a union so we can set bits in the double according to the IEE754
-	union { double d; uint64_t u; } dbl;
-	dbl.u = (flt.mant << 1) >> 12;		// Mantissa
+	// Shift least significant bits off for mantissa and remove leading 1
+	out->u.m = flt.mant >> 11;
+	out->u.e = flt.e + 1023;	// Exponent with added bias
+	out->u.s = sign;
 	
 	// Round up if nessesary
 	const bool rnd = lowbits > half;
-	dbl.u += rnd;				// Actually add 1 to ulp
-	flt.e += dbl.u >> 52;			// Normalize (inc exponent)
-	dbl.u &= 0x000FFFFFFFFFFFFFull;		// Normailze
-
-	dbl.u |= (uint64_t)(flt.e + 1023) << 52;// Add exponent bias
-	dbl.u |= (uint64_t)sign << 63;		// Set sign bit
+	out->u.m += rnd;			// Actually add 1 to ulp
+	flt.e += out->u.m == 0 && rnd;		// Normalize (inc exponent)
 	
-	return dbl.d;
-}
-
-// Goes to closest 'previous' float
-#define FLT_NORM (1ull << 63)
-static EKJSON_ALWAYS_INLINE flt_t flt_prev(flt_t x) {
-	if (--x.mant < FLT_NORM) {
-		x.mant = FLT_NORM;
-		--x.e;
-	}
-	return x;
-}
-
-// Goes to closest 'next' float
-static EKJSON_ALWAYS_INLINE flt_t flt_next(flt_t x) {
-	if (++x.mant == 0) {
-		x.mant = FLT_NORM;
-		++x.e;
-	}
-	return x;
+	// Return false if we are in the 1/2 range
+	return lowbits - ulperr > half | lowbits + ulperr < half;
 }
 
 // Multiple 2 64bit mantissas and get high 64 bits back.
@@ -1497,8 +1512,9 @@ static void addexp(const char *src, int32_t *exp) {
 // integers y=m*2^k) and let g be a flt_t with m, k as normalized mantissa
 // and exponent g is a guess for the actual closest float representation that
 // must be at most 1 off
-static double refineflt(bigint_t x, bigint_t y, flt_t g, const bool sign) {
-	uint32_t m[3] = { 1, g.mant, g.mant >> 32 };
+static double compareflt(bigint_t x, bigint_t y, bitdbl_t g) {
+	const uint64_t mant = bitdbl_sig(g);
+	uint32_t m[3] = { 2, mant, mant >> 32 };
 
 	bigint_t d, d2;
 	const bool dneg = bigint_sub(&d, &x, &y);
@@ -1509,34 +1525,35 @@ static double refineflt(bigint_t x, bigint_t y, flt_t g, const bool sign) {
 	if (bigint_shl(&d2, 1)) return FLTNAN;
 
 	if (cmp < 0) {
-		if (g.mant == 1ull << 52 && dneg
-			&& bigint_cmp(&d2, &y) < 0) g = flt_prev(g);
+		if (mant == 1ull << 52 && dneg
+			&& bigint_cmp(&d2, &y) < 0) bitdbl_prev(&g);
 	} else if (cmp == 0) {
-		if (g.mant & 1) {
-			if (dneg) g = flt_prev(g);
-			else g = flt_next(g);
-		} else if (g.mant == 1ull << 52 && dneg) {
-			g = flt_prev(g);
+		if (mant & 1) {
+			if (dneg) bitdbl_prev(&g);
+			else bitdbl_next(&g);
+		} else if (mant == 1ull << 52 && dneg) {
+			bitdbl_prev(&g);
 		}
 	} else {
-		if (dneg) g = flt_prev(g);
-		else g = flt_next(g);
+		if (dneg) bitdbl_prev(&g);
+		else bitdbl_next(&g);
 	}
 
-	return flt_dbl(g, 0, sign);
+	return g.d;
 }
 
 // Slow path for parsing floats. If even THIS overflows we just give up and
 // return NAN. I doub't anybody is passing in numbers over 200 sig-figs long,
 // besides that can't even be represented in double precision floats
 static double slowflt(const char *src, const bool sign) {
-	static bigint_t sig;
-	int32_t e = 0;
-	bool sawdot = false;
+	// Create a place to store and exact significand and exponent
+	static bigint_t sig;	// Integer siginifcand
+	int32_t e = 0;		// Exponent
 
 	// Get significand (and parse fractional component)
-	sig.len = 0;
-	while (*src >= '0' && *src <= '9' || *src == '.') {
+	sig.len = 0;		// Initialize significand
+	for (bool sawdot = false; *src >= '0' && *src <= '9' || *src == '.';) {
+		// Skip decimal points
 		if (*src == '.') {
 			if (sawdot) break;	// Don't do 2 decimal periods
 			sawdot = true;
@@ -1551,6 +1568,7 @@ static double slowflt(const char *src, const bool sign) {
 			|| bigint_add32(&sig, *src++ - '0')) return FLTNAN;
 	}
 
+	// Conditionally parse an exponential
 	if ((*src & 0x4F) == 'E') addexp(src + 1, &e);
 
 	// Check for infinity, zero, denormals (not implemented yet), etc
@@ -1559,36 +1577,47 @@ static double slowflt(const char *src, const bool sign) {
 
 	// Generate guess using normal flt_mul
 	flt_t flt;
+
+	// Gets top 64 bits (rounded) and sets flt.e to how many times right it
+	// had to shift to get the top 64 bits
 	flt.mant = bigint_ms64(&sig, &flt.e);
-	flt.e += 63;
+	flt.e += 63;	// Bias the exponent to make it normalized (1.63 fixed)
+	
+	// These are how many units of error in the ULP we are off from
+	// the closest approximation of the floating point number we
+	// are trying to find. If e is out of range of exactly representable
+	// mantissas, then we are going to have a lot more error, and if flt.e
+	// is greater than 0, then we have a mantissa not exactly representable
+	// in 64 bits.
 	const int ulperr = (flt.e > 0) + (e < 0 || e >= MANT_FINE_RANGE) * 3;
+
+	// Generate guess
 	flt = flt_mul(flt, ten2e(e));
-	const double res = flt_dbl(flt, ulperr, sign);
-	if (NOTNAN(res)) return res;
 
-	// Well, we have to do some iteration to find the closest value
+	// Get conversion result. If its not on the 1/2 barrier then we're good
+	bitdbl_t dbl;
+	if (flt_dbl(flt, ulperr, sign, &dbl)) return dbl.d;
+
+	// Well, we have to do some iteration to find the closest value. We
+	// know that because we already had more precsion than we needed for
+	// 53 bit floats, we are only 1 above or 1 under the float that we
+	// should get.
 	bigint_t m;
-	bigint_set64(&m, flt.mant);
+	bigint_set64(&m, bitdbl_sig(dbl));
 
-	if (e >= 0 && flt.e >= 0) {
-		if (bigint_pow10(&sig, e)) return FLTNAN;
-		if (bigint_shl(&m, flt.e)) return FLTNAN;
-	} else if (e >= 0 && flt.e < 0) {
-		if (bigint_pow10(&sig, e)) return FLTNAN;
-		if (bigint_shl(&sig, -flt.e)) return FLTNAN;
-	} else if (e < 0 && flt.e >= 0) {
-		if (bigint_pow10(&m, -e)) return FLTNAN;
-		if (bigint_shl(&m, flt.e)) return FLTNAN;
-	} else {
-		if (bigint_pow10(&sig, -e)) return FLTNAN;
-		if (bigint_shl(&m, -flt.e)) return FLTNAN;
-	}
-
-	return refineflt(sig, m, flt, sign);
+	// Make sig and m both proportionally exact integers for what we
+	// should exactly get (sig*10^e) and what we have (m*2^dbl.e)
+	// Return FLTNAN if the numbers overflow
+	const int e2 = (int)dbl.u.e - 1023;	// Bias dbl.u.e back to normal
+	if (e >= 0 && bigint_pow10(&sig, e)
+		|| e < 0 && bigint_pow10(&m, -e)) return FLTNAN;
+	if (e2 >= 0 && bigint_shl(&m, e2)
+		|| e2 < 0 && bigint_shl(&sig, -e2)) return FLTNAN;
+	return compareflt(sig, m, dbl);
 }
 
-// Returns a quiet nan if it could not use the fast path to parse the float
-static double fastflt(const char *src, const bool sign) {
+// Returns if it could use the fast path
+static bool fastflt(const char *src, const bool sign, double *result) {
 	// Precalculated powers of 10 to shift the integer part of the
 	// significand by when parsing the fractional component
 	static const uint64_t shiftpows[] = {
@@ -1618,7 +1647,7 @@ static double fastflt(const char *src, const bool sign) {
 	int n;		// Number of digits parsed by parsebase10
 
 	// Parse the digits before the decimal and goto slow path if overflow
-	if (!(n = parsebase10(src, &flt.mant))) return FLTNAN;
+	if (!(n = parsebase10(src, &flt.mant))) return false;
 	src += n;
 
 	// Conditionally parse the fractional component
@@ -1630,7 +1659,7 @@ static double fastflt(const char *src, const bool sign) {
 		if (!(n = parsebase10(++src, &frac))
 			|| mul_overflow(flt.mant, shiftpows[n], &flt.mant)
 			|| add_overflow(flt.mant, frac, &flt.mant)) {
-			return FLTNAN;
+			return false;
 		}
 
 		// Advance src, and subtract the exponent because we are
@@ -1642,9 +1671,15 @@ static double fastflt(const char *src, const bool sign) {
 	if ((*src & 0x4F) == 'E') addexp(src + 1, &flt.e);
 
 	// Check for infinity, zero, denormals (pass to slow route), etc
-	if (flt.mant == 0 || flt.e < -324) return sign ? -0.0 : 0.0;
-	else if (flt.e < -308) return FLTNAN;	// Slow path does denormals
-	else if (flt.e > 308) return sign ? -FLTINF : FLTINF;
+	if (flt.mant == 0 || flt.e < -324) {
+		*result = sign ? -0.0 : 0.0;
+		return true;
+	} else if (flt.e < -308) {
+		return false;	// Slow path does denormals
+	} else if (flt.e > 308) {
+		*result = sign ? -FLTINF : FLTINF;
+		return true;
+	}
 
 	// We within range of exactly representable powers of 10 for doubles?
 	const bool inrange = flt.e > -(int32_t)ARRLEN(exact)
@@ -1672,7 +1707,7 @@ static double fastflt(const char *src, const bool sign) {
 
 		// Now just convert the high precision double we calculated to
 		// a lower precision (double precision). Returns NAN on ties
-		return flt_dbl(flt, ulperr, sign);
+		return flt_dbl(flt, ulperr, sign, (bitdbl_t *)result);
 	} else {
 		// Really fast path. Here we can divide or multiply by exact
 		// powers of ten and guarentee exact results (if we have a
@@ -1684,7 +1719,8 @@ static double fastflt(const char *src, const bool sign) {
 		else mag = (double)flt.mant / exact[-flt.e];
 
 		// Apply the sign
-		return mag * ((double)sign * -2.0 + 1.0);
+		*result = mag * ((double)sign * -2.0 + 1.0);
+		return true;
 	}
 }
 
@@ -1697,8 +1733,8 @@ double ejflt(const char *src) {
 	src += sign;
 
 	// Try fast paths first and if they won't work use biguint and do slow
-	const double result = fastflt(src, sign);
-	if (NOTNAN(result)) return result;
+	double result;
+	if (fastflt(src, sign, &result)) return result;
 	else return slowflt(src, sign);
 }
 
