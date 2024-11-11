@@ -13,6 +13,13 @@
 #define EKJSON_ALWAYS_INLINE
 #endif
 
+// No inline macros
+#ifdef __GNUC__
+#define EKJSON_NO_INLINE __attribute__((noinline))
+#else
+#define EKJSON_NO_INLINE
+#endif
+
 // (except for in space efficient mode)
 #if EKJSON_SPACE_EFFICENT
 #	define EKJSON_INLINE
@@ -1567,7 +1574,7 @@ static void addexp(const char *src, int32_t *exp) {
 // Slow path for parsing floats. If even THIS overflows we just give up and
 // return NAN. I doub't anybody is passing in numbers over 200 sig-figs long,
 // besides that can't even be represented in double precision floats
-static double slowflt(const char *src, const bool sign) {
+static EKJSON_NO_INLINE double slowflt(const char *src, const bool sign) {
 	// Create a place to store and exact significand and exponent
 	static bigint_t sig;	// Integer siginifcand
 	int32_t e = 0;		// Exponent
@@ -1640,11 +1647,9 @@ static double slowflt(const char *src, const bool sign) {
 		|| e2 < 0 && bigint_shl(&sig, -e2)) return FLTNAN;
 	
 	const int cmp = bigint_cmp(&sig, &m);
-	switch (cmp) {
-	case -1: break;
-	case 1: bitdbl_next(&dbl); break;
-	default: if (dbl.u.m & 1) bitdbl_next(&dbl); break;
-	}
+
+	// Round up or tie to even
+	if (cmp == 0 && (dbl.u.m & 1) || cmp > 0) bitdbl_next(&dbl);
 	return dbl.d;
 }
 
