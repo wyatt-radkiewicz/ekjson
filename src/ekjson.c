@@ -1387,7 +1387,7 @@ bool ejcmp(const char *src, const char *cstr) {
 
 // Parses up to 8 digits and writes it to the out pointer. It how many of the
 // 8 bytes in this part of the string make up the number starting at the string
-static int parsedigits8(const char *src, uint64_t *const out) {
+static int EKJSON_INLINE parsedigits8(const char *src, uint64_t *const out) {
 #if EKJSON_NO_BITWISE
 	*out = 0;
 	if (*src < '0' || *src > '9') return 0;
@@ -1570,11 +1570,9 @@ static void addexp(const char *src, int32_t *exp) {
 
 	// Parse the exponent. Check early for obvious overflow, so we
 	// dont actually overflow the flt.e i32
-	if (!parsebase10(src, &e) || e > 324) {
-		*exp = esign ? INT32_MIN : INT32_MAX;
-	} else {
-		*exp += esign ? -(int32_t)e : (int32_t)e;
-	}
+	const bool bad = parsedigits8(src, &e) > 3 || e > 324;
+	*exp += esign ? -(int32_t)e : (int32_t)e;
+	if (bad) *exp = (int32_t)((uint32_t)INT32_MAX + esign);
 }
 
 // Slow path for parsing floats. If even THIS overflows we just give up and
