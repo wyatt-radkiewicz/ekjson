@@ -133,7 +133,7 @@ class Transitions:
         return
 
     def print_ctable(self):
-        print('#if EKJSON_SPACE_EFFICIENT\n')
+        print('#if EKJSON_SPACE_EFFICENT\n')
         print('// Edge table')
         print(f'static const uint8_t edges[256] = {{')
         nset = 0
@@ -162,7 +162,10 @@ class Transitions:
                     print('\n\t', end='')
                 first = False
                 nrow += 1
-                print(f'[\'{chr(k)}\'] = ', end='')
+                ch = '\'' + chr(k) + '\''
+                if ch == '\'\'': ch = '0'
+                if ch == '\'\\\'': ch = '\'\\\\\''
+                print(f'[{ch}] = ', end='')
                 curr = 0
                 while k != i:
                     print(f'{num}, ', end='')
@@ -206,7 +209,7 @@ class Transitions:
                 else: print(' ', end='')
             print('},')
         print('};\n')
-        print('#else // EKJSON_SPACE_EFFICIENT\n')
+        print('#else // EKJSON_SPACE_EFFICENT\n')
         print('// State transition table (big)')
         print(f'static const uint8_t trans[][256] = {{')
         for i in range(0, len(self.states)):
@@ -261,7 +264,7 @@ class Transitions:
 
             #print('},')
         print('};\n')
-        print('#endif // EKJSON_SPACE_EFFICIENT\n')
+        print('#endif // EKJSON_SPACE_EFFICENT\n')
 
     def load_xml(self, states: States, am: Element):
         edge_tables = set()
