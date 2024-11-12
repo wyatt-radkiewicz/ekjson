@@ -32,6 +32,10 @@ $(OUT): $(OBJS) $(CXXOBJS)
 		install_name_tool -add_rpath $$PWD/jjson/lib $(OUT);\
 		install_name_tool -add_rpath $$PWD/json-c $(OUT);\
 	fi
+	@if [[ $$(uname) == "Linux" ]]; then\
+		patchelf --set-rpath $$ORIGIN/jjson/lib:$$ORIGIN/json-c $(OUT);\
+	fi
+
 
 # Remember that when this call is evaluated, it is expanded TWICE!
 define COMPILE
