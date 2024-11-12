@@ -318,46 +318,33 @@ typedef struct bigint {
 	uint32_t dgts[EKJSON_MAX_SIG / 32];
 } bigint_t;
 
+// Shift each digit in x left. Returns true if overflow occurred
+static bool shiftdigits(bigint_t *x, const uint32_t n) {
+	if (n == 0) return false;
+	if ((x->len += n) > ARRLEN(x->dgts)) return true;
+	uint32_t *to = x->dgts + x->len - 1;
+	for (uint32_t *from = to - n; from >= x->dgts; *to-- = *from--);
+	for (; to >= x->dgts; *to-- = 0);
+	return false;
+}
+
 // Shifts 'x' 'n' bits left. Returns true if an overflow occured
-static bool bigint_shl(bigint_t *x, const uint32_t n) {
-	// If x is already 0, then there is nothing to shift
-	if (x->len == 0) return false;
-
-	// How many whole digits to shift by
-	const uint32_t dgts = n / 32;
-
-	// How many bits to shift by in each digit
-	const uint32_t shift = n % 32;
-
-	// Update length of the bigint and check for overflow early
-	uint32_t newlen = x->len + dgts + (n > 0);
-	if (newlen >= ARRLEN(x->dgts)) return true;
-
-	if (shift) {
-		uint32_t carry = 0;	// Carry for next digit
-		x->dgts[x->len++] = 0;	// Add new space to shift digits into
-		
-		// Shift each digit by 'shift' bits
-		for (uint32_t i = 0; i < x->len; i++) {
-			const uint64_t shifted = (uint64_t)x->dgts[i] << shift;
-			x->dgts[i] = shifted | carry;
-			carry = shifted >> 32;
-		}
-
-		if (x->dgts[x->len - 1] == 0) x->len--, newlen--;
+static bool bigint_shl(bigint_t *x, uint32_t n) {
+	if (x->len == 0 || n == 0) return false;	// Nothing to shift
+	if (shiftdigits(x, n / 32)) return true;	// Overflow happened
+	if ((n %= 32) == 0) return false;		// Shift was on bound
+	
+	// Shift every bit now
+	uint64_t carry = 0;
+	for (int i = 0; i < x->len; i++) {
+		uint64_t res = x->dgts[i] << n;
+		x->dgts[i] = res | carry;
+		carry = res >> 32;
 	}
 
-	// Return if we don't need to shift the digits
-	x->len = newlen;
-	if (dgts == 0) return false;
-
-	// Shift each digit themselves (memmove)
-	uint32_t to = newlen - 1, from = newlen - 1 - dgts;
-	for (; to >= dgts; to--, from--) {
-		x->dgts[to] = x->dgts[from];
-	}
-	for (; to < x->len; x->dgts[to--] = 0);
-
+	if (!carry) return false;
+	if (x->len + 1 >= ARRLEN(x->dgts)) return true;
+	x->dgts[x->len++] = carry;
 	return false;
 }
 
