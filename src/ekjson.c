@@ -468,7 +468,7 @@ static bool bigint_pow10(bigint_t *out, uint32_t e) {
 }
 
 // Sets a big int to the data of a u64
-static void bigint_set64(bigint_t *out, uint64_t x) {
+static EKJSON_ALWAYS_INLINE void bigint_set64(bigint_t *out, uint64_t x) {
 	out->dgts[0] = x;
 	out->dgts[1] = x >> 32;
 	out->len = out->dgts[1] ? 2 : !!out->dgts[0];
