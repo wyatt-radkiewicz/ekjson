@@ -229,85 +229,6 @@ static size_t hex2utf8(const char *src, char out[static const 4]) {
 	}
 }
 
-#if defined(BIGINT_MAXWIDTH) && BIGINT_MAXWIDTH >= EKJSON_MAX_SIG
-typedef unsigned _BitInt(EKJSON_MAX_SIG) bigint_t;
-
-// Shifts 'x' 'n' bits left. Returns true if an overflow occured
-static bool bigint_shl(bigint_t *x, const uint32_t n) {
-	// TODO: Check for overflow
-	*x <<= n;
-	return false;
-}
-
-// Gets most significant 64 bits where the integer returned has the most
-// significant bit from the big int starting as the msb of the 64 bit int.
-// Rounds up for lower bits. Sets pos to what direction the result was shifted
-// to to normalize it
-static uint64_t bigint_ms64(const bigint_t *x, int32_t *pos) {
-	bigint_t y = *x;
-	
-	*pos = 0;
-	if (y == 0) {
-		return 0;
-	} else if (y >> 64) {
-		while (y >> 64) {
-			y >>= 1;
-			++*pos;
-		}
-	} else {
-		while (y & (1ull << 63)) {
-			y <<= 1;
-			--*pos;
-		}
-	}
-
-	return (uint64_t)y;
-}
-
-// Compare 2 bit ints. (sign of x - y)
-static int bigint_cmp(const bigint_t *x, const bigint_t *y) {
-	if (*x == *y) return 0;
-	else if (*x < *y) return -1;
-	else return 1;
-}
-
-// Returns true if the bitint overflowed
-static bool bigint_add32(bigint_t *x, uint64_t y) {
-	// TODO: Check for overflow
-	*x += y;
-	return false;
-}
-
-// Raises out to the power of 10 and returns if an overflow occurred
-static EKJSON_ALWAYS_INLINE bool bigint_pow10(bigint_t *out, uint32_t e) {
-	// Representation of powers of 10
-	static const uint64_t pows[] = {
-		1ull, 10ull, 100ull, 1000ull, 10000ull, 100000ull, 1000000ull,
-		10000000ull, 100000000ull, 1000000000ull, 10000000000ull,
-		100000000000ull, 1000000000000ull, 10000000000000ull,
-		100000000000000ull, 1000000000000000ull, 10000000000000000ull,
-		100000000000000000ull, 1000000000000000000ull,
-		10000000000000000000ull,
-	};
-	while (e >= ARRLEN(pows) - 1) {
-		// TODO: Check for overflow
-		*out *= pows[ARRLEN(pows) - 1];
-		e -= ARRLEN(pows) - 1;
-	}
-	*out *= pows[e];
-	return false;
-}
-
-// Sets a big int to the data of a u64
-static EKJSON_ALWAYS_INLINE void bigint_set64(bigint_t *out, uint64_t x) {
-	*out = x;
-}
-
-// Returns true if the bigint is 0
-static EKJSON_ALWAYS_INLINE bool bigint_iszero(const bigint_t *x) {
-	return *x == 0;
-}
-#else
 // Used in the slow path of ejflt parser to compare really big ints (> 2^1024)
 typedef struct bigint {
 	uint32_t len;
@@ -449,7 +370,6 @@ static EKJSON_ALWAYS_INLINE void bigint_set64(bigint_t *out, uint64_t x) {
 static EKJSON_ALWAYS_INLINE bool bigint_iszero(const bigint_t *x) {
 	return x->len == 0;
 }
-#endif // BITINT_MAXWIDTH
 
 #define FLTNAN (0.0 / 0.0) // Quiet nan
 #define FLTINF (1.0 / 0.0) // Infinity
