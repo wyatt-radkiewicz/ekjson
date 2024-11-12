@@ -279,14 +279,6 @@ static bool bigint_add32(bigint_t *x, uint64_t y) {
 	*x += y;
 }
 
-// Returns true if overflow occurred. If y is only 1 digit long, then x and out
-// can be aliased. Otherwise, they can not be aliased
-static EKJSON_ALWAYS_INLINE bool bigint_mul(bigint_t *out, const bigint_t *x,
-						const bigint_t *y) {
-	// TODO: Check for overflow
-	*out = *x * *y;
-}
-
 // Raises out to the power of 10 and returns if an overflow occurred
 static EKJSON_ALWAYS_INLINE bool bigint_pow10(bigint_t *out, uint32_t e) {
 	// Representation of powers of 10
@@ -409,61 +401,36 @@ static bool bigint_add32(bigint_t *x, uint64_t y) {
 	return false;
 }
 
-// Returns true if overflow occurred. If y is only 1 digit long, then x and out
-// can be aliased. Otherwise, they can not be aliased
-static bool bigint_mul(bigint_t *out, const bigint_t *x, const bigint_t *y) {
-	// Check for multiply by 0
-	if (x->len == 0 || y->len == 0) {
-		out->len = 0;
-		return false;
+// Multiplies against 1 digit
+static bool bigint_mul32(bigint_t *x, const uint64_t y) {
+	// Multiply each current digit, being mindful of carrying
+	uint64_t carry = 0;
+	for (uint32_t i = 0; i < x->len; i++) {
+		carry += x->dgts[i] * y;
+		x->dgts[i] = (uint32_t)carry;
+		carry >>= 32;
 	}
 
-	// Calculate new length (might need to add 1 due to carry)
-	out->len = x->len + y->len - 1;
-	if (out->len > ARRLEN(out->dgts)) return true;
-
-	// Loop through every digit of y and multiply it by x
-	for (uint32_t yd = 0; yd < y->len; yd++) {
-		uint64_t carry = 0;
-
-		for (uint32_t xd = 0; xd < x->len; xd++) {
-			// Multiply the 2 digits and add the carry from
-			// last time
-			uint64_t mul = (uint64_t)x->dgts[xd]
-				* (uint64_t)y->dgts[yd] + carry;
-			
-			// Save lower 32 bits
-			out->dgts[yd+xd] = mul;
-			carry = mul >> 32;	// Carry higher 32 bits
-		}
-
-		// Add final carry if nessesary and check for overflow
-		if (!carry) continue;
-		if (yd == y->len - 1 && out->len + 1 == ARRLEN(out->dgts)) {
-			return true;	// We overflowed
-		}
-
-		out->dgts[yd+x->len] = carry;
-		out->len++;		// Increment length to reflect carry
-	}
+	if (carry == 0) return false;			// No carry
+	if (x->len == ARRLEN(x->dgts)) return true;	// Carry, but overflows
+	x->dgts[x->len++] = carry;			// Add carry
 	return false;
 }
 
 // Raises out to the power of 10 and returns if an overflow occurred
 static bool bigint_pow10(bigint_t *out, uint32_t e) {
 	// Bigint representation of powers of 10 in 1 digit
-	static const uint32_t pows[][2] = {
-		{ 1, 1 }, { 1, 10u }, { 1, 100u }, { 1, 1000u }, { 1, 10000u },
-		{ 1, 100000u }, { 1, 1000000u }, { 1, 10000000u },
-		{ 1, 100000000u }, { 1, 1000000000u },
+	static const uint32_t pows[] = {
+		1u, 10u, 100u, 1000u, 10000u, 100000u, 1000000u, 10000000u,
+		100000000u, 1000000000u,
 	};
 	while (e >= ARRLEN(pows) - 1) {
-		if (bigint_mul(out, out, (bigint_t *)pows[ARRLEN(pows) - 1])) {
+		if (bigint_mul32(out, pows[ARRLEN(pows) - 1])) {
 			return true;
 		}
 		e -= ARRLEN(pows) - 1;
 	}
-	if (bigint_mul(out, out, (bigint_t *)pows[e])) return true;
+	if (bigint_mul32(out, pows[e])) return true;
 	return false;
 }
 
