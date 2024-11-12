@@ -1467,8 +1467,7 @@ convert:
 
 // Parses a stream of base10 digits
 // Returns number of chars parsed, if overflow, returns 0 chars parsed
-static EKJSON_ALWAYS_INLINE int parsebase10(const char *src,
-					uint64_t *const out) {
+static EKJSON_INLINE int parsebase10(const char *src, uint64_t *const out) {
 	// Powers of 10 to shift by
 	static const uint64_t pows[9] = {
 		1ull, 10ull, 100ull, 1000ull, 10000ull, 100000ull,

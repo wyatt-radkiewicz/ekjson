@@ -1285,8 +1285,8 @@ int main(int argc, char **argv) {
 	int res = tests_run_foreach(NULL, tests, arrlen(tests), stdout)
 		? 0 : -1;
 	if (speed_test) {
-		test_ejstr_speed();
-		test_ejint_speed();
+		//test_ejstr_speed();
+		//test_ejint_speed();
 		test_ejflt_speed(2500000, "fast",
 			flt_fast_strings, flt_fast_strings_len);
 		test_ejflt_speed(5000000, "slow",
