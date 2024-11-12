@@ -1445,13 +1445,28 @@ static flt_t ten2e(int32_t e10) {
 		0xB484F9DC9641E9DA, 0xC86AB5C39FA63440,	// 1e278, 1e294
 	};
 
-	// Bias the exponent for the coarse range
+	// Bias the exponent for the coarse range so that the absolute minimum
+	// double exponent (in base 10) is at index 0
 	e10 -= MANT_COARSE_MIN;
 
-	// Use fine and coarse because 10^(x*y) = 10^x*10^y
+	// Use fine and coarse because 10^(x+y) = 10^x*10^y
 	int fine = e10 % MANT_FINE_RANGE, coarse = e10 / MANT_FINE_RANGE;
 
-	// Eq. is 2^(e2) = 10^(e10), solve it urself, you'll get linear exp.
+	// Here we multiply the fine by the coarse mantissa to add the 2
+	// exponents together to get the actual number.
+	// 10^(x+y) = 10^x*10^y
+	//
+	// We are also calculating the base 2 exponents for these base 10
+	// exponents. We can do this with this equasion:
+	// 2^x = 10^y
+	// log_2(10^y) = x
+	// y*log_2(10) = x
+	//
+	// With this we can do some fixed point arithmatic by multiplying
+	// log_2(10) by 2^16 to get ~217706. Then after we are done multiplying
+	// we divide by 2^16 to get the actual number again (truncated, but
+	// this is fine as our approximation *should be fine in the normal
+	// double precision range) *idk about that yet.
 	return flt_mul(
 		(flt_t){ .mant = mant_fine[fine],
 			.e = (fine * 217706) >> 16 },
@@ -1782,7 +1797,9 @@ static flt_t ten2e(int32_t e10) {
 		0x8E679C2F5E44FF8F, 0xB201833B35D63F73,	// 1e308, 1e309
 	};
 
-	// Eq. is 2^(e2) = 10^(e10), solve it urself, you'll get linear exp.
+	// Eq. is 2^(e2) = 10^(e10) to get exponent. It is covered in more
+	// detail in the fine/coarse impelmentation above this one. Basically
+	// I precalculated the mantissas needed here for 10^(e10).
 	return (flt_t){ .mant = mant[e10 - MANT_COARSE_MIN],
 			.e = (e10 * 217706) >> 16 };
 #endif // EKJSON_SPACE_EFFICENT
@@ -1798,7 +1815,7 @@ static void addexp(const char *src, int32_t *exp) {
 	src += esign | (*src == '+');
 
 	// Parse the exponent. Check early for obvious overflow, so we
-	// dont actually overflow the flt.e i32
+	// dont actually overflow the i32 by accident or else just add it
 	const bool bad = parsedigits8(src, &e) > 3 || e > 324;
 	*exp += esign ? -(int32_t)e : (int32_t)e;
 	if (bad) *exp = (int32_t)((uint32_t)INT32_MAX + esign);
@@ -1852,17 +1869,21 @@ frac:
 	// Generate guess using normal flt_mul
 	flt_t flt;
 
-	// Gets top 64 bits (rounded) and sets flt.e to how many times right it
-	// had to shift to get the top 64 bits
+	// Gets top 64 bits (rounded) after this function call we also know
+	// that flt.e will have the position of the most significant set bit
+	// minus 63. This means that the number 1 will have flt.e set to -63
+	// after this.
 	flt.mant = bigint_ms64(&sig, &flt.e);
-	flt.e += 63;	// Bias the exponent to make it normalized (1.63 fixed)
+
+	// Bias the exponent to make it normalized (1.63 fixed)
+	flt.e += 63;
 	
 	// These are how many units of error in the ULP we are off from
 	// the closest approximation of the floating point number we
 	// are trying to find. If e is out of range of exactly representable
 	// mantissas, then we are going to have a lot more error, and if flt.e
-	// is greater than 0, then we have a mantissa not exactly representable
-	// in 64 bits.
+	// is greater than 63, then we have a mantissa not exactly
+	// representable in 64 bits.
 	const int ulperr = (flt.e > 63) + (e < 0 || e >= MANT_FINE_RANGE) * 3;
 
 	// Generate guess
@@ -1874,17 +1895,28 @@ frac:
 
 	// Well, we have to do some iteration to find the closest value. We
 	// know that because we already had more precsion than we needed for
-	// 53 bit floats, we are only 1 above or 1 under the float that we
-	// should get.
+	// 53 bit floats, and because the function above will not round up at
+	// all if it thinks we are on a boundary, we are either on the correct
+	// float value or 1 below the correct one.
 	static bigint_t m;
+
+	// Set the big int to the significand of the floating point double we
+	// just created. Then we multiply by 2 and add a half. This represents
+	// the halfway point we were on. Now we can compare against this.
 	bigint_set64(&m, bitdbl_sig(dbl) << 1 | 1);
 
-	// Bias the double back to normal to make mantissa an integer.
-	// Also take into account the 1 we shifted up there
+	// Since we used the significand of the double and we have to use
+	// integers, m is greather than or equal to 1 << 52 and less than
+	// 1 << 53. Due to this being an integer we subtract 52 from the
+	// unbiased double exponent. We also subtract 1 because of the half
+	// we added to the significand.
 	const int e2 = (int)dbl.u.e - 1023 - 52 - 1;
 
 	// Make sig and m both proportionally exact integers for what we
-	// should exactly get (sig*10^e) and what we have (m*2^dbl.e)
+	// should exactly get (sig*10^e) and what we have (m*2^dbl.e).
+	// Again since can only accuratly represent integers, we keep e and e2
+	// proportional by multiplying the other by the factor instead of
+	// dividing.
 	// Return FLTNAN if the numbers overflow
 	if (e >= 0 && bigint_pow10(&sig, e)
 		|| e < 0 && bigint_pow10(&m, -e)) return FLTNAN;
@@ -1893,12 +1925,14 @@ frac:
 	
 	const int cmp = bigint_cmp(&sig, &m);
 
-	// Round up or tie to even
+	// Round up or tie up to even if we are exactly on the half
 	if (cmp == 0 && (dbl.u.m & 1) || cmp > 0) bitdbl_next(&dbl);
 	return dbl.d;
 }
 
-// Returns if it could use the fast path
+// Returns true if it could use the fast path. At this point since int_part
+// did not overflow, we can be sure that the whole integer part of the double
+// was parsed.
 static bool fastflt(const char *src, const uint64_t int_part,
 			const bool sign, double *result) {
 	// Precalculated powers of 10 to shift the integer part of the
@@ -1969,8 +2003,9 @@ static bool fastflt(const char *src, const uint64_t int_part,
 	if (lz < 12 || !inrange) {
 		// These are how many units of error in the ULP we are off from
 		// the closest approximation of the floating point number we
-		// are trying to find. If e is out of the range of exactly
-		// representable 64 bit mantissas, then 
+		// are trying to find. If e is out of range of exactly
+		// representable mantissas, then we are going to have a lot
+		// more error.
 		const int ulperr = (flt.e < 0 || flt.e >= MANT_FINE_RANGE) * 3;
 		
 		// Now convert flt from significand * 10^e to a normalized
@@ -1999,8 +2034,7 @@ static bool fastflt(const char *src, const uint64_t int_part,
 }
 
 // Returns the number token as a float. If the number is out of the range that
-// can be represented, it will return either +/-inf. This function will never
-// return nan. This function will also handle +/-0.0
+// can be represented, it will return either +/-inf.
 double ejflt(const char *src) {
 	// Get the sign and skip it
 	const bool sign = *src == '-';
