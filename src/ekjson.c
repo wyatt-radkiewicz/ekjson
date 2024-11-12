@@ -6,18 +6,15 @@
 #define STR2U32(A, B, C, D) ((A) | ((B) << 8) | ((C) << 16) | ((D) << 24))
 #define ARRLEN(A) (sizeof(A) / sizeof((A)[0]))
 
-// Always inline macros
+// GNUC specific macros
 #ifdef __GNUC__
 #define EKJSON_ALWAYS_INLINE inline __attribute__((always_inline))
+#define EKJSON_NO_INLINE __attribute__((noinline))
+#define EKJSON_EXPECT(X, Y) __builtin_expect((X), (Y))
 #else
 #define EKJSON_ALWAYS_INLINE
-#endif
-
-// No inline macros
-#ifdef __GNUC__
-#define EKJSON_NO_INLINE __attribute__((noinline))
-#else
 #define EKJSON_NO_INLINE
+#define EKJSON_EXPECT(X, Y) (X)
 #endif
 
 // (except for in space efficient mode)
@@ -1549,13 +1546,15 @@ static void addexp(const char *src, int32_t *exp) {
 // Slow path for parsing floats. If even THIS overflows we just give up and
 // return NAN. I doub't anybody is passing in numbers over 200 sig-figs long,
 // besides that can't even be represented in double precision floats
-static EKJSON_NO_INLINE double slowflt(const char *src, const bool sign) {
+static EKJSON_NO_INLINE double slowflt(const char *src,
+				const uint64_t int_part, const bool sign) {
 	// Create a place to store and exact significand and exponent
 	static bigint_t sig;	// Integer siginifcand
 	int32_t e = 0;		// Exponent
 
 	// Get significand (and parse fractional component)
-	sig.len = 0;		// Initialize significand
+	bigint_set64(&sig, int_part); // Int part has first 19 or less digits
+	if (*src == '.') goto frac;	// Skip to fraction if we can
 
 	int n;			// Number of digits parsed in 1 run
 	do {
@@ -1569,6 +1568,7 @@ static EKJSON_NO_INLINE double slowflt(const char *src, const bool sign) {
 
 	// Do fractional part if we have one to parse
 	if (*src == '.') {
+frac:
 		src++;
 		do {
 			uint64_t run;
@@ -1638,7 +1638,8 @@ static EKJSON_NO_INLINE double slowflt(const char *src, const bool sign) {
 }
 
 // Returns if it could use the fast path
-static bool fastflt(const char *src, const bool sign, double *result) {
+static bool fastflt(const char *src, const uint64_t int_part,
+			const bool sign, double *result) {
 	// Precalculated powers of 10 to shift the integer part of the
 	// significand by when parsing the fractional component
 	static const uint64_t shiftpows[] = {
@@ -1662,14 +1663,7 @@ static bool fastflt(const char *src, const bool sign, double *result) {
 	// stored in a flt_t even though the 'mantissa' is not normalized.
 	// Another different thing here is that we also (temporarily) store the
 	// base 10 exponent here in the float (which should be base 2)
-	flt_t flt;
-	flt.e = 0;	// Setup float's exponent to be 10^0
-
-	int n;		// Number of digits parsed by parsebase10
-
-	// Parse the digits before the decimal and goto slow path if overflow
-	if (!(n = parsebase10(src, &flt.mant))) return false;
-	src += n;
+	flt_t flt = { .mant = int_part, .e = 0 };
 
 	// Conditionally parse the fractional component
 	if (*src == '.') {
@@ -1677,6 +1671,7 @@ static bool fastflt(const char *src, const bool sign, double *result) {
 
 		// Shift significand and add fractional part on, while making
 		// sure not to overflow (abort to slow path)
+		int n; // Number of digits parsed by parsebase10
 		if (!(n = parsebase10(++src, &frac))
 			|| mul_overflow(flt.mant, shiftpows[n], &flt.mant)
 			|| add_overflow(flt.mant, frac, &flt.mant)) {
@@ -1750,10 +1745,19 @@ double ejflt(const char *src) {
 	const bool sign = *src == '-';
 	src += sign;
 
+	// Sometimes just doing things byte by byte is faster, and that is the
+	// cast here so we just do it byte by byte and check for overflow. If
+	// we do overflow, then goto slow path but keep first x digits.
+	uint64_t i = 0, n = 0;
+	for (;*src >= '0' && *src <= '9'; i = i * 10 + *src++ - '0') {
+		if (EKJSON_EXPECT(++n > 19, 0)) goto slowpath;
+	}
+
 	// Try fast paths first and if they won't work use biguint and do slow
 	double result;
-	if (fastflt(src, sign, &result)) return result;
-	else return slowflt(src, sign);
+	if (fastflt(src, i, sign, &result)) return result;
+slowpath:
+	return slowflt(src, i, sign);
 }
 
 // Returns whether the boolean is true or false
