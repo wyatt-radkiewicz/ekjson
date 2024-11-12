@@ -1615,6 +1615,7 @@ static EKJSON_NO_INLINE double slowflt(const char *src, const bool sign) {
 
 	// Do fractional part if we have one to parse
 	if (*src == '.') {
+		src++;
 		do {
 			uint64_t run;
 			src += n = parsedigits8(src, &run);
