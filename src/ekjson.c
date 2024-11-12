@@ -236,6 +236,7 @@ typedef unsigned _BitInt(EKJSON_MAX_SIG) bigint_t;
 static bool bigint_shl(bigint_t *x, const uint32_t n) {
 	// TODO: Check for overflow
 	*x <<= n;
+	return false;
 }
 
 // Gets most significant 64 bits where the integer returned has the most
@@ -274,6 +275,7 @@ static int bigint_cmp(const bigint_t *x, const bigint_t *y) {
 static bool bigint_add32(bigint_t *x, uint64_t y) {
 	// TODO: Check for overflow
 	*x += y;
+	return false;
 }
 
 // Raises out to the power of 10 and returns if an overflow occurred
@@ -299,6 +301,11 @@ static EKJSON_ALWAYS_INLINE bool bigint_pow10(bigint_t *out, uint32_t e) {
 // Sets a big int to the data of a u64
 static EKJSON_ALWAYS_INLINE void bigint_set64(bigint_t *out, uint64_t x) {
 	*out = x;
+}
+
+// Returns true if the bigint is 0
+static EKJSON_ALWAYS_INLINE bool bigint_iszero(const bigint_t *x) {
+	return *x == 0;
 }
 #else
 // Used in the slow path of ejflt parser to compare really big ints (> 2^1024)
@@ -436,6 +443,11 @@ static EKJSON_ALWAYS_INLINE void bigint_set64(bigint_t *out, uint64_t x) {
 	out->dgts[0] = x;
 	out->dgts[1] = x >> 32;
 	out->len = out->dgts[1] ? 2 : !!out->dgts[0];
+}
+
+// Returns true if the bigint is 0
+static EKJSON_ALWAYS_INLINE bool bigint_iszero(const bigint_t *x) {
+	return x->len == 0;
 }
 #endif // BITINT_MAXWIDTH
 
@@ -1914,7 +1926,7 @@ frac:
 	if ((*src & 0x4F) == 'E') addexp(src + 1, &e);
 
 	// Check for infinity, zero, denormals (not implemented yet), etc
-	if (sig.len == 0 || e < -308) return sign ? -0.0 : 0.0;
+	if (bigint_iszero(&sig) || e < -308) return sign ? -0.0 : 0.0;
 	if (e > 308) return sign ? -FLTINF : FLTINF;
 
 	// Generate guess using normal flt_mul
