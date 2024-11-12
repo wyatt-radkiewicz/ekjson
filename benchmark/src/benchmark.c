@@ -3,6 +3,8 @@
 #include <string.h>
 #include <time.h>
 
+#include "ekjson/src/ekjson.h"
+
 #define ITERS 100
 #define NBENCHMARKS 7
 
@@ -78,10 +80,84 @@ static void warmup(const char *src) {
 
 //void cleanup_simdjson_end(void);
 
+extern double parse_fast_double_parser(const char *src);
+static void flt_speed(const int niters, const char *name,
+			char *volatile strings[], size_t strings_len) {
+	volatile uint32_t no_optimize = 0;
+
+	// Calculate number of bytes
+	double ngigs = 0.0;
+	for (int j = 0; j < strings_len; j++) {
+		ngigs += strlen(strings[j]);
+	}
+	ngigs *= niters;
+	ngigs /= 1024 * 1024 * 1024;
+
+	// test functions
+	clock_t start;
+	double time;
+	printf("\n\nejflt %s tests\n", name);
+
+	// test fast_float_conversion
+	start = clock();
+	for (int i = 0; i < niters; i++) {
+		for (int j = 0; j < strings_len; j++) {
+			no_optimize += parse_fast_double_parser(strings[j]);
+		}
+	}
+	time = (double)(clock() - start) / (double)CLOCKS_PER_SEC;
+	printf("fastdbl %d iters time (s): %.4lf\n", niters, time);
+	printf("fastdbl throughput (GB/s): %.2lf\n", ngigs / time);
+	printf("fastdbl throughput (millions N/s): %.2lf\n",
+		((double)(niters * strings_len) / 1000000.0) / time);
+	
+	// test atof
+	start = clock();
+	for (int i = 0; i < niters; i++) {
+		for (int j = 0; j < strings_len; j++) {
+			no_optimize += atof(strings[j]);
+		}
+	}
+	time = (double)(clock() - start) / (double)CLOCKS_PER_SEC;
+	printf("atof   %d iters time (s): %.4lf\n", niters, time);
+	printf("atof   throughput (GB/s): %.2lf\n", ngigs / time);
+	printf("atof   throughput (millions N/s): %.2lf\n",
+		((double)(niters * strings_len) / 1000000.0) / time);
+
+	// test ejflt
+	start = clock();
+	for (int i = 0; i < niters; i++) {
+		for (int j = 0; j < strings_len; j++) {
+			no_optimize += ejflt(strings[j]);
+		}
+	}
+	time = (double)(clock() - start) / (double)CLOCKS_PER_SEC;
+	printf("ejflt  %d iters time (s): %.4lf\n", niters, time);
+	printf("ejflt  throughput (GB/s): %.2lf\n", ngigs / time);
+	printf("ejflt  throughput (millions N/s): %.2lf\n",
+		((double)(niters * strings_len) / 1000000.0) / time);
+}
+
+extern char *flt_general_strings[], *flt_fast_strings[], *flt_slow_strings[];
+extern size_t flt_general_strings_len, flt_fast_strings_len,
+       flt_slow_strings_len;
+
+int do_flt_test(void) {
+	flt_speed(2500000, "general", flt_general_strings,
+			flt_general_strings_len);
+	flt_speed(2500000, "fast", flt_fast_strings, flt_fast_strings_len);
+	flt_speed(5000000, "slow", flt_slow_strings, flt_slow_strings_len);
+	return 0;
+}
+
 int main(int argc, char **argv) {
 	if (argc != 2) {
-		printf("usage: ./benchmark [file]\n");
+		printf("usage: [./benchmark [file] | float]\n");
 		return 1;
+	}
+
+	if (strcmp(argv[1], "float") == 0) {
+		return do_flt_test();
 	}
 
 	FILE *file = fopen(argv[1], "rb");

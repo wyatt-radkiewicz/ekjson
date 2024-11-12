@@ -3,22 +3,30 @@
 #
 
 # Variables
-SRCS	:=./benchmark.c ./benchmark_ekjson.c ./benchmark_jsmn.c ./benchmark_jjson.c ./benchmark_jsonc.c ./ekjson/src/ekjson.c
-CXXSRCS	:=./benchmark_simdjson.cpp ./simdjson/singleheader/simdjson.cpp ./benchmark_rapidjson.cpp
-BUILD	:=build
+SRCS	:= $(wildcard ./src/*.c) ./ekjson/src/ekjson.c
+CXXSRCS	:= $(wildcard ./src/*.cpp) ./simdjson/singleheader/simdjson.cpp
+BUILD	:=rel
 OUT	:=$(BUILD)/benchmark
 OBJS	:=$(patsubst %.c,$(BUILD)/%.o,$(SRCS))
 CXXOBJS	:=$(patsubst %.cpp,$(BUILD)/%.o,$(CXXSRCS))
 
 # Environment variables
-FLAGS	:=-O2 -Isimdjson/singleheader -Ijjson/extern/array/include -Ijjson/extern/hash-cache/include -Ijjson/extern/dict/include -Ijjson/extern/log/include -Ijjson/extern/sync/include -Ijjson/include -Irapidjson/include/
+FLAGS	:=-O2 -I./ -Isimdjson/singleheader -Ijjson/extern/array/include -Ijjson/extern/hash-cache/include -Ijjson/extern/dict/include -Ijjson/extern/log/include -Ijjson/extern/sync/include -Ijjson/include -Irapidjson/include/
 LDFLAGS	:=$(LDFLAGS) -lm -Ljjson/lib/ -larray -ldict -ljson -lhash_cache -llog -lsync -Ljson-c/ -ljson-c
 
 CFLAGS	:=$(CFLAGS) $(FLAGS) -std=gnu99
 CXXFLAGS:=$(CXXFLAGS) $(FLAGS) -std=c++11
 
+# Parser benchmark
+parse: $(OUT)
+	$(OUT) samples/512KB.json
+
+# Float benchmark
+float: $(OUT)
+	$(OUT) float
+
 # Build the main executable
-$(OUT): build-file-rules $(OBJS) $(CXXOBJS)
+$(OUT): $(OBJS) $(CXXOBJS)
 	$(CXX) $(LDFLAGS) $^ -o $@
 	@if [[ $$(uname) == "Darwin" ]]; then\
 		install_name_tool -add_rpath $$PWD/jjson/lib $(OUT);\

@@ -22,3 +22,6 @@
 [submodule "benchmark/rapidjson"]
 	path = benchmark/rapidjson
 	url = https://github.com/Tencent/rapidjson.git
+[submodule "benchmark/fast_double_parser"]
+	path = benchmark/fast_double_parser
+	url = https://github.com/lemire/fast_double_parser.git
