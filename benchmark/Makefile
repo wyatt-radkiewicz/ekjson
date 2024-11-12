@@ -12,7 +12,7 @@ CXXOBJS	:=$(patsubst %.cpp,$(BUILD)/%.o,$(CXXSRCS))
 
 # Environment variables
 FLAGS	:=-O2 -I./ -Isimdjson/singleheader -Ijjson/extern/array/include -Ijjson/extern/hash-cache/include -Ijjson/extern/dict/include -Ijjson/extern/log/include -Ijjson/extern/sync/include -Ijjson/include -Irapidjson/include/
-LDFLAGS	:=$(LDFLAGS) -lm -Ljjson/lib/ -larray -ldict -ljson -lhash_cache -llog -lsync -Ljson-c/ -ljson-c
+LDFLAGS	:=$(LDFLAGS) -lm -Wl,-rpath json-c/ -Wl,-rpath jjson/lib/ -Ljjson/lib/ -larray -ldict -ljson -lhash_cache -llog -lsync -Ljson-c/ -ljson-c
 
 CFLAGS	:=$(CFLAGS) $(FLAGS) -std=gnu99
 CXXFLAGS:=$(CXXFLAGS) $(FLAGS) -std=c++11
@@ -28,13 +28,6 @@ float: $(OUT)
 # Build the main executable
 $(OUT): $(OBJS) $(CXXOBJS)
 	$(CXX) $(LDFLAGS) $^ -o $@
-	@if [[ $$(uname) == "Darwin" ]]; then\
-		install_name_tool -add_rpath $$PWD/jjson/lib $(OUT);\
-		install_name_tool -add_rpath $$PWD/json-c $(OUT);\
-	fi
-	@if [[ $$(uname) == "Linux" ]]; then\
-		patchelf --set-rpath $$ORIGIN/jjson/lib:$$ORIGIN/json-c $(OUT);\
-	fi
 
 
 # Remember that when this call is evaluated, it is expanded TWICE!
