@@ -1,25 +1,24 @@
-![eklipsed](/tools/eklipsed.jpg)
-<p align="center">ek(lips3d) json parser -*ektoml*-</p>
+<p align="center"><img align="center" width=200 src="docs/icon.png"/></p>
+<p align="center"><b><i>ekjson</i></b>  <b>ek</b>lips3d <b>json</b> parser</p>
 
-> A really fast, simple, malloc-less, (opinionated) json parser in c
+# Overview
+[![C/C++ CI](https://github.com/wyatt-radkiewicz/ekjson/actions/workflows/test.yml/badge.svg)](https://github.com/wyatt-radkiewicz/ekjson/actions/workflows/test.yml)
 
-## What is ekjson?
-I wanted a simple, malloc-less, and really fast json parser for my text editor
-luckyvim. I didn't want this library to be too invasive.
-NOTE: This is an opinionated library. Basically the use case I made this library
-for is for parsing a toml file into c structures, that's it.
+ekjson is meant to be a low overhead, no frills parser in C. 
 
-## How to use ekjson?
-### How to build:
-Just drop the files into your project or make it a git submodule. It's only
-2 files.
+## Features
 
-### How to test:
-Just run
-```
-make && ./build/test
-```
+
+# Building The Project
+
+
+# Using ekjson
+
+
+# Further Reading
+
 
 ## License
-[GLWTSPL](/LICENSE)
+<img width=400 src="docs/LICENSE.jpg"/>
 
+[GLWTSPL](/LICENSE)
