@@ -1,3 +1,8 @@
+/**
+ * \file ekjson.h
+ * \author eklipsed
+ * \version 0.1.1
+ */
 #include <limits.h>
 
 #include "ekjson.h"

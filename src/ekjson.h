@@ -1,6 +1,7 @@
 /**
  * \file ekjson.h
  * \author eklipsed
+ * \version 0.1.1
  *
  * Who is ekjson for?
  * ==================
@@ -133,6 +134,15 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+
+/**
+ * \brief ekjson version number
+ *
+ * \note Update this everytime a new version is released
+ */
+#define EKJSON_VERSION_MAJOR 0
+#define EKJSON_VERSION_MINOR 1
+#define EKJSON_VERSION_PATCH 1
 
 /**
  * \brief Removes big tables
