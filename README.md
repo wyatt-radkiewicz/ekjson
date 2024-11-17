@@ -227,6 +227,4 @@ as follows:
 >  even to JSON is a trivial task and doesn't exactly require a big library.
 
 ### License
-<img width=400 src="docs/LICENSE.jpg"/>
-
 [GLWTSPL](/LICENSE)
